@@ -63,7 +63,7 @@ _tmp_pycache/
 # Project generated artifacts
 # =========================
 # raw dataset files (usually large, local-only)
-#data/raw/
+data/raw/
 
 # training outputs
 results/
