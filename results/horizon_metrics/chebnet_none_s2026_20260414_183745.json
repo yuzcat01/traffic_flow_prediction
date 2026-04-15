@@ -1,0 +1,13 @@
+{
+  "model_name": "chebnet_none_s2026_20260414_183745",
+  "predict_steps": 1,
+  "horizons": [
+    {
+      "horizon_index": 0,
+      "horizon_step": 1,
+      "mae": 20.685073852539062,
+      "mape": 0.12143208086490631,
+      "rmse": 33.13594055175781
+    }
+  ]
+}

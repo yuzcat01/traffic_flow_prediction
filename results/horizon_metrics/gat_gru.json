@@ -1,0 +1,13 @@
+{
+  "model_name": "gat_gru",
+  "predict_steps": 1,
+  "horizons": [
+    {
+      "horizon_index": 0,
+      "horizon_step": 1,
+      "mae": 20.316692352294922,
+      "mape": 0.12303024530410767,
+      "rmse": 32.03987503051758
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "model_name": "gat_none_s2026_20260414_194126",
+  "predict_steps": 1,
+  "horizons": [
+    {
+      "horizon_index": 0,
+      "horizon_step": 1,
+      "mae": 20.838281631469727,
+      "mape": 0.12336204946041107,
+      "rmse": 33.130775451660156
+    }
+  ]
+}

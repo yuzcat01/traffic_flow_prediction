@@ -1,0 +1,13 @@
+{
+  "model_name": "gcn_none_s2026_20260414_204933",
+  "predict_steps": 1,
+  "horizons": [
+    {
+      "horizon_index": 0,
+      "horizon_step": 1,
+      "mae": 20.88579559326172,
+      "mape": 0.12468767166137695,
+      "rmse": 33.43400192260742
+    }
+  ]
+}

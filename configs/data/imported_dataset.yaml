@@ -1,0 +1,9 @@
+dataset:
+  name: ImportedDataset
+  graph_path: data\raw\imported\graph_20260414_150814_PeMS04.csv
+  flow_path: data\raw\imported\flow_20260414_150820_PeMS04.npz
+  num_nodes: 307
+  divide_days:
+  - 45
+  - 16
+  time_interval: 5

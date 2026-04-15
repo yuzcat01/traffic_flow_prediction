@@ -1,0 +1,7 @@
+dataset:
+  name: PeMS04
+  graph_path: data/raw/PeMS04/PeMS04.csv
+  flow_path: data/raw/PeMS04/PeMS04.npz
+  num_nodes: 307
+  divide_days: [45, 14]
+  time_interval: 5

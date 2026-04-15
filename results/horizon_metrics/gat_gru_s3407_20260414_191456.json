@@ -1,0 +1,13 @@
+{
+  "model_name": "gat_gru_s3407_20260414_191456",
+  "predict_steps": 1,
+  "horizons": [
+    {
+      "horizon_index": 0,
+      "horizon_step": 1,
+      "mae": 20.287935256958008,
+      "mape": 0.11855986714363098,
+      "rmse": 32.09434127807617
+    }
+  ]
+}

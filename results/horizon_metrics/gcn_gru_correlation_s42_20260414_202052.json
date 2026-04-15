@@ -1,0 +1,13 @@
+{
+  "model_name": "gcn_gru_correlation_s42_20260414_202052",
+  "predict_steps": 1,
+  "horizons": [
+    {
+      "horizon_index": 0,
+      "horizon_step": 1,
+      "mae": 20.344663619995117,
+      "mape": 0.12005850672721863,
+      "rmse": 32.4543571472168
+    }
+  ]
+}

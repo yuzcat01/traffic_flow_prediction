@@ -1,0 +1,33 @@
+model:
+  name: gcn_gru_correlation
+
+  graph:
+    type: correlation
+    correlation_topk: 8
+    correlation_threshold: 0.35
+    use_abs_corr: false
+
+  input:
+    history_length: 12
+    input_dim: 1
+
+  spatial:
+    type: gcn
+    hidden_dim: 16
+
+  temporal:
+    type: gru
+    hidden_dim: 32
+    num_layers: 1
+
+  regularization:
+    dropout: 0.10
+
+  output:
+    output_dim: 1
+    predict_steps: 1
+    head_type: horizon_mlp
+    pred_hidden_dim: 64
+    horizon_emb_dim: 8
+    dropout: 0.10
+    use_last_value_residual: true
