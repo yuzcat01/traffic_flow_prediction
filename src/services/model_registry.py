@@ -3,6 +3,8 @@ import glob
 import os
 from typing import Any, Dict, List, Optional
 
+from src.project_paths import resolve_project_path
+
 
 def _safe_float(value, default=0.0):
     try:
@@ -20,9 +22,9 @@ def _safe_int(value, default=0):
 
 class ModelRegistry:
     def __init__(self, results_dir: str = "results"):
-        self.results_dir = results_dir
-        self.metrics_csv = os.path.join(results_dir, "metrics_summary.csv")
-        self.run_cfg_dir = os.path.join(results_dir, "run_configs")
+        self.results_dir = str(resolve_project_path(results_dir))
+        self.metrics_csv = os.path.join(self.results_dir, "metrics_summary.csv")
+        self.run_cfg_dir = os.path.join(self.results_dir, "run_configs")
 
     def _find_latest_run_config(self, model_name: str) -> Optional[str]:
         pattern = os.path.join(self.run_cfg_dir, f"{model_name}_*.json")
@@ -31,6 +33,13 @@ class ModelRegistry:
             return None
         candidates.sort(key=os.path.getmtime, reverse=True)
         return candidates[0]
+
+    @staticmethod
+    def _resolve_optional_path(value: Any) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        return str(resolve_project_path(text))
 
     def list_models(self, sort_by: str = "rmse") -> List[Dict[str, Any]]:
         if not os.path.exists(self.metrics_csv):
@@ -61,7 +70,9 @@ class ModelRegistry:
                 row["figure_horizon_step"] = _safe_int(row.get("figure_horizon_step"))
                 row["horizon_weight_mode"] = str(row.get("horizon_weight_mode", "uniform"))
                 row["horizon_weights"] = str(row.get("horizon_weights", ""))
-                row["horizon_metrics_path"] = str(row.get("horizon_metrics_path", ""))
+                row["ckpt_path"] = self._resolve_optional_path(row.get("ckpt_path", ""))
+                row["fig_path"] = self._resolve_optional_path(row.get("fig_path", ""))
+                row["horizon_metrics_path"] = self._resolve_optional_path(row.get("horizon_metrics_path", ""))
                 row["optimizer"] = str(row.get("optimizer", ""))
                 row["lr_scheduler"] = str(row.get("lr_scheduler", ""))
 

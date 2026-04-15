@@ -21,8 +21,8 @@ from PyQt5.QtWidgets import (
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-from services.config_service import ConfigService
-from services.data_service import DataService
+from src.services.config_service import ConfigService
+from src.services.data_service import DataService
 
 
 class MplCanvas(FigureCanvas):

@@ -6,15 +6,10 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from datasets.traffic_dataset import LoadData
-from models.builder import build_model
-from utils.metrics import Evaluation
-
-
-def recover_data(max_data, min_data, data):
-    base = max_data - min_data
-    base = np.where(base == 0, 1.0, base)
-    return data * base + min_data
+from src.datasets.traffic_dataset import LoadData
+from src.models.builder import build_model
+from src.project_paths import get_project_root, resolve_project_path
+from src.utils.metrics import Evaluation
 
 
 class TrafficPredictor:
@@ -24,6 +19,8 @@ class TrafficPredictor:
         checkpoint_path: Optional[str] = None,
         device: str = "auto",
     ):
+        self.project_root = get_project_root()
+        run_config_path = str(resolve_project_path(run_config_path, self.project_root))
         if not os.path.exists(run_config_path):
             raise FileNotFoundError(f"run_config not found: {run_config_path}")
 
@@ -41,6 +38,9 @@ class TrafficPredictor:
         self.model_cfg = self.cfg["model"]
         self.train_cfg = self.cfg["train"]
         self.graph_cfg = self.model_cfg.get("graph", {"type": "connect"})
+        self.graph_path = str(resolve_project_path(self.dataset_cfg["graph_path"], self.project_root))
+        self.flow_path = str(resolve_project_path(self.dataset_cfg["flow_path"], self.project_root))
+        self.save_dir = str(resolve_project_path(self.train_cfg["save_dir"], self.project_root))
 
         self.history_length = int(self.model_cfg["input"]["history_length"])
         self.predict_steps = int(self.model_cfg.get("output", {}).get("predict_steps", 1))
@@ -55,10 +55,12 @@ class TrafficPredictor:
 
         if checkpoint_path is None:
             checkpoint_path = os.path.join(
-                self.train_cfg["save_dir"],
+                self.save_dir,
                 "checkpoints",
                 f"{self.model_name}_best.pth",
             )
+        else:
+            checkpoint_path = str(resolve_project_path(checkpoint_path, self.project_root))
 
         if not os.path.exists(checkpoint_path):
             raise FileNotFoundError(f"checkpoint not found: {checkpoint_path}")
@@ -96,7 +98,7 @@ class TrafficPredictor:
         norm_end_t = train_sample_num + self.history_length + self.predict_steps - 1
 
         ref_train_data = LoadData(
-            data_path=[self.dataset_cfg["graph_path"], self.dataset_cfg["flow_path"]],
+            data_path=[self.graph_path, self.flow_path],
             num_nodes=self.dataset_cfg["num_nodes"],
             divide_days=self.dataset_cfg["divide_days"],
             time_interval=self.dataset_cfg["time_interval"],
@@ -110,7 +112,7 @@ class TrafficPredictor:
 
     def _build_graph_tensor(self) -> torch.Tensor:
         ref_train_data = LoadData(
-            data_path=[self.dataset_cfg["graph_path"], self.dataset_cfg["flow_path"]],
+            data_path=[self.graph_path, self.flow_path],
             num_nodes=self.dataset_cfg["num_nodes"],
             divide_days=self.dataset_cfg["divide_days"],
             time_interval=self.dataset_cfg["time_interval"],
@@ -124,7 +126,7 @@ class TrafficPredictor:
 
     def _build_test_dataset(self) -> LoadData:
         return LoadData(
-            data_path=[self.dataset_cfg["graph_path"], self.dataset_cfg["flow_path"]],
+            data_path=[self.graph_path, self.flow_path],
             num_nodes=self.dataset_cfg["num_nodes"],
             divide_days=self.dataset_cfg["divide_days"],
             time_interval=self.dataset_cfg["time_interval"],
@@ -197,7 +199,7 @@ class TrafficPredictor:
         with torch.no_grad():
             pred = self.model(data, self.device).detach().cpu().numpy()[0]  # [N, H_out, 1]
 
-        pred = recover_data(self.norm_base[0], self.norm_base[1], pred)
+        pred = LoadData.recover_data(self.norm_base[0], self.norm_base[1], pred)
         return pred
 
     def predict_test_sample(self, index: int) -> Dict[str, np.ndarray]:
@@ -207,7 +209,7 @@ class TrafficPredictor:
         target = sample["flow_y"].numpy()
 
         pred = self.predict_window(flow_x, input_normalized=True)   # [N, H_out, 1]
-        target = recover_data(self.norm_base[0], self.norm_base[1], target)
+        target = LoadData.recover_data(self.norm_base[0], self.norm_base[1], target)
 
         return {
             "prediction": pred[:, 0, 0],
@@ -233,8 +235,8 @@ class TrafficPredictor:
 
         pred_all = self.predict_window(flow_x, input_normalized=True)  # [N, H_out, 1]
 
-        history = recover_data(self.norm_base[0], self.norm_base[1], flow_x)   # [N, H, 1]
-        target = recover_data(self.norm_base[0], self.norm_base[1], target)    # [N, H_out, 1]
+        history = LoadData.recover_data(self.norm_base[0], self.norm_base[1], flow_x)   # [N, H, 1]
+        target = LoadData.recover_data(self.norm_base[0], self.norm_base[1], target)    # [N, H_out, 1]
 
         history_node = history[node_id, :, 0]
         target_node = float(target[node_id, horizon_idx, 0])
@@ -277,8 +279,8 @@ class TrafficPredictor:
                 pred = self.model(data, self.device).detach().cpu().numpy()
                 target = data["flow_y"].detach().cpu().numpy()
 
-                pred = recover_data(self.norm_base[0], self.norm_base[1], pred)
-                target = recover_data(self.norm_base[0], self.norm_base[1], target)
+                pred = LoadData.recover_data(self.norm_base[0], self.norm_base[1], pred)
+                target = LoadData.recover_data(self.norm_base[0], self.norm_base[1], target)
 
                 all_preds.append(pred)
                 all_targets.append(target)

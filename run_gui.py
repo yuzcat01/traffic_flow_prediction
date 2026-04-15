@@ -4,11 +4,8 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QBrush, QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PyQt5.QtWidgets import QApplication
 
-from bootstrap import setup_project_paths
-
-setup_project_paths()
-
-from gui.main_window import MainWindow
+from src.gui.main_window import MainWindow
+from src.project_paths import PROJECT_ROOT
 
 
 def build_app_icon(size: int = 256) -> QIcon:
@@ -51,10 +48,11 @@ def build_app_icon(size: int = 256) -> QIcon:
 
 
 def resolve_resource_path(relative_path: str) -> Path:
-    base_dir = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    base_dir = Path(getattr(sys, "_MEIPASS", PROJECT_ROOT))
     candidates = [
         base_dir / relative_path,
         base_dir / "src" / relative_path,
+        PROJECT_ROOT / relative_path,
     ]
     for candidate in candidates:
         if candidate.exists():
@@ -66,7 +64,7 @@ def main():
     app = QApplication(sys.argv)
 
     icon = None
-    for rel in ("gui/assets/app_icon.ico", "gui/assets/app_icon.png"):
+    for rel in ("src/gui/assets/app_icon.ico", "src/gui/assets/app_icon.png"):
         candidate = resolve_resource_path(rel)
         if candidate.exists():
             icon = QIcon(str(candidate))

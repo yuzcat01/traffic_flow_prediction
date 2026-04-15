@@ -1,11 +1,8 @@
 import argparse
 
-from bootstrap import setup_project_paths
-
-setup_project_paths()
-
-from utils.config import load_yaml, merge_configs
-from trainers.trainer import Trainer
+from src.project_paths import resolve_project_path
+from src.trainers.trainer import Trainer
+from src.utils.config import load_yaml, merge_configs
 
 
 def main():
@@ -15,9 +12,9 @@ def main():
     parser.add_argument("--model_cfg", type=str, required=True)
     args = parser.parse_args()
 
-    data_cfg = load_yaml(args.data_cfg)
-    train_cfg = load_yaml(args.train_cfg)
-    model_cfg = load_yaml(args.model_cfg)
+    data_cfg = load_yaml(resolve_project_path(args.data_cfg))
+    train_cfg = load_yaml(resolve_project_path(args.train_cfg))
+    model_cfg = load_yaml(resolve_project_path(args.model_cfg))
 
     cfg = merge_configs(data_cfg, train_cfg, model_cfg)
 

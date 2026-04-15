@@ -30,8 +30,8 @@ from PyQt5.QtWidgets import (
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-from services.model_registry import ModelRegistry
-from services.report_service import ExperimentReportService
+from src.services.model_registry import ModelRegistry
+from src.services.report_service import ExperimentReportService
 
 
 class MplCanvas(FigureCanvas):

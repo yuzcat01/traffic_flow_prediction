@@ -2,13 +2,12 @@ from pathlib import Path
 from typing import List, Dict, Optional
 import yaml
 
+from src.project_paths import get_project_root
+
 
 class ConfigService:
     def __init__(self, project_root: Optional[str] = None):
-        if project_root is None:
-            self.project_root = Path(__file__).resolve().parents[2]
-        else:
-            self.project_root = Path(project_root).resolve()
+        self.project_root = get_project_root(project_root)
 
     def _list_yaml(self, relative_dir: str) -> List[Dict[str, str]]:
         folder = self.project_root / relative_dir

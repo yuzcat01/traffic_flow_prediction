@@ -1,9 +1,9 @@
-from models.spatial.gcn import GCNSpatial
-from models.spatial.chebnet import ChebNetSpatial
-from models.spatial.gat import GATSpatial
-from models.temporal.gru import GRUTemporal
-from models.temporal.identity import IdentityTemporal
-from models.st_model import STModel
+from src.models.spatial.gcn import GCNSpatial
+from src.models.spatial.chebnet import ChebNetSpatial
+from src.models.spatial.gat import GATSpatial
+from src.models.temporal.gru import GRUTemporal
+from src.models.temporal.identity import IdentityTemporal
+from src.models.st_model import STModel
 
 
 def build_spatial_encoder(model_cfg):

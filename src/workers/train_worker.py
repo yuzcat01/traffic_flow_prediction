@@ -1,6 +1,6 @@
 from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
 
-from services.train_service import TrainService
+from src.services.train_service import TrainService
 
 
 class TrainWorker(QObject):

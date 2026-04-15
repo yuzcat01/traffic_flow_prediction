@@ -17,7 +17,7 @@ from PyQt5.QtWidgets import (
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-from gui.widgets.metric_card import MetricCard
+from src.gui.widgets.metric_card import MetricCard
 
 
 class MplCanvas(FigureCanvas):

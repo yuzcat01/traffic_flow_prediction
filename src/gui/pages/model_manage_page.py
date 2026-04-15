@@ -23,7 +23,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from services.model_registry import ModelRegistry
+from src.services.model_registry import ModelRegistry
 
 
 class ModelManagePage(QWidget):

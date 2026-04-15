@@ -19,9 +19,9 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from services.config_service import ConfigService
-from utils.config import load_yaml
-from workers.train_worker import TrainWorker
+from src.services.config_service import ConfigService
+from src.utils.config import load_yaml
+from src.workers.train_worker import TrainWorker
 
 
 class TrainPage(QWidget):

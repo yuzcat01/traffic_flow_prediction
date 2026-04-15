@@ -8,22 +8,18 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Subset
 
-from datasets.traffic_dataset import LoadData
-from models.builder import build_model
-from utils.metrics import Evaluation
-from utils.visualize import plot_prediction_vs_target, plot_loss_curve
-from utils.recorder import append_result, save_run_config
-
-
-def recover_data(max_data, min_data, data):
-    base = max_data - min_data
-    base = np.where(base == 0, 1.0, base)
-    return data * base + min_data
+from src.datasets.traffic_dataset import LoadData
+from src.models.builder import build_model
+from src.project_paths import get_project_root, resolve_project_path
+from src.utils.metrics import Evaluation
+from src.utils.recorder import append_result, save_run_config
+from src.utils.visualize import plot_prediction_vs_target, plot_loss_curve
 
 
 class Trainer:
     def __init__(self, cfg):
         self.cfg = cfg
+        self.project_root = get_project_root()
 
         train_cfg = cfg["train"]
         self.seed = int(train_cfg.get("seed", 42))
@@ -38,6 +34,8 @@ class Trainer:
 
         dataset_cfg = cfg["dataset"]
         model_cfg = cfg["model"]
+        self.graph_path = str(resolve_project_path(dataset_cfg["graph_path"], self.project_root))
+        self.flow_path = str(resolve_project_path(dataset_cfg["flow_path"], self.project_root))
 
         self.history_length = model_cfg["input"]["history_length"]
         self.predict_steps = int(model_cfg.get("output", {}).get("predict_steps", 1))
@@ -45,7 +43,7 @@ class Trainer:
             raise ValueError("model.output.predict_steps must be > 0")
         self.graph_cfg = model_cfg.get("graph", {"type": "connect"})
         self.model_name = model_cfg["name"]
-        self.save_dir = train_cfg["save_dir"]
+        self.save_dir = str(resolve_project_path(train_cfg["save_dir"], self.project_root))
 
         self.one_day_length = int(24 * 60 / dataset_cfg["time_interval"])
         self.total_train_steps = dataset_cfg["divide_days"][0] * self.one_day_length
@@ -61,7 +59,7 @@ class Trainer:
         norm_end_t = max(estimated_full_train_sample_num, 1) + self.history_length + self.predict_steps - 1
 
         self.full_train_data = LoadData(
-            data_path=[dataset_cfg["graph_path"], dataset_cfg["flow_path"]],
+            data_path=[self.graph_path, self.flow_path],
             num_nodes=dataset_cfg["num_nodes"],
             divide_days=dataset_cfg["divide_days"],
             time_interval=dataset_cfg["time_interval"],
@@ -100,7 +98,7 @@ class Trainer:
             self.val_data = None
 
         self.test_data = LoadData(
-            data_path=[dataset_cfg["graph_path"], dataset_cfg["flow_path"]],
+            data_path=[self.graph_path, self.flow_path],
             num_nodes=dataset_cfg["num_nodes"],
             divide_days=dataset_cfg["divide_days"],
             time_interval=dataset_cfg["time_interval"],
@@ -326,8 +324,8 @@ class Trainer:
                 pred_np = pred.detach().cpu().numpy()
                 target_np = target.detach().cpu().numpy()
 
-                pred_np = recover_data(self.norm_base[0], self.norm_base[1], pred_np)
-                target_np = recover_data(self.norm_base[0], self.norm_base[1], target_np)
+                pred_np = LoadData.recover_data(self.norm_base[0], self.norm_base[1], pred_np)
+                target_np = LoadData.recover_data(self.norm_base[0], self.norm_base[1], target_np)
 
                 all_preds.append(pred_np)
                 all_targets.append(target_np)

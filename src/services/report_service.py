@@ -4,14 +4,12 @@ import shutil
 from typing import Dict, List, Optional
 import csv
 
+from src.project_paths import get_project_root
+
 
 class ExperimentReportService:
     def __init__(self, project_root: Optional[str] = None, results_dir: str = "results"):
-        if project_root is None:
-            self.project_root = Path(__file__).resolve().parents[2]
-        else:
-            self.project_root = Path(project_root).resolve()
-
+        self.project_root = get_project_root(project_root)
         self.results_dir = (self.project_root / results_dir).resolve()
         self.reports_dir = (self.results_dir / "reports").resolve()
         self.reports_dir.mkdir(parents=True, exist_ok=True)

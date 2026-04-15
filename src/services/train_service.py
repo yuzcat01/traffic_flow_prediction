@@ -7,18 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional, Dict, Any
 
-import yaml
-
-from utils.config import load_yaml
-
-
-def deep_update_dict(base: dict, updates: dict):
-    for k, v in updates.items():
-        if isinstance(v, dict) and isinstance(base.get(k), dict):
-            deep_update_dict(base[k], v)
-        else:
-            base[k] = v
-    return base
+from src.project_paths import get_project_root, resolve_project_path
+from src.utils.config import deep_update_dict, dump_yaml, load_yaml
 
 
 class TrainService:
@@ -30,14 +20,11 @@ class TrainService:
         overrides: Optional[Dict[str, Any]] = None,
         project_root: Optional[str] = None,
     ):
-        if project_root is None:
-            self.project_root = Path(__file__).resolve().parents[2]
-        else:
-            self.project_root = Path(project_root).resolve()
+        self.project_root = get_project_root(project_root)
 
-        self.data_cfg = str(Path(data_cfg).resolve())
-        self.train_cfg = str(Path(train_cfg).resolve())
-        self.model_cfg = str(Path(model_cfg).resolve())
+        self.data_cfg = str(resolve_project_path(data_cfg, self.project_root))
+        self.train_cfg = str(resolve_project_path(train_cfg, self.project_root))
+        self.model_cfg = str(resolve_project_path(model_cfg, self.project_root))
         self.overrides = overrides or {}
 
         self.process: Optional[subprocess.Popen] = None
@@ -79,14 +66,9 @@ class TrainService:
         train_cfg_path = temp_path / "train_cfg.yaml"
         model_cfg_path = temp_path / "model_cfg.yaml"
 
-        with open(data_cfg_path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(merged_data_cfg, f, allow_unicode=True, sort_keys=False)
-
-        with open(train_cfg_path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(merged_train_cfg, f, allow_unicode=True, sort_keys=False)
-
-        with open(model_cfg_path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(merged_model_cfg, f, allow_unicode=True, sort_keys=False)
+        dump_yaml(data_cfg_path, merged_data_cfg)
+        dump_yaml(train_cfg_path, merged_train_cfg)
+        dump_yaml(model_cfg_path, merged_model_cfg)
 
         return temp_dir, str(data_cfg_path), str(train_cfg_path), str(model_cfg_path), final_model_name
 

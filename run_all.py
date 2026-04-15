@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
 
-import yaml
+from src.utils.config import dump_yaml, load_yaml
 
 
 def discover_model_configs(models_dir: Path):
@@ -30,18 +30,6 @@ def parse_seed_list(text: str) -> List[int]:
     if not seeds:
         seeds = [42]
     return seeds
-
-
-def load_yaml(path: Path) -> Dict:
-    with open(path, "r", encoding="utf-8") as f:
-        obj = yaml.safe_load(f)
-    return obj or {}
-
-
-def save_yaml(path: Path, obj: Dict):
-    with open(path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(obj, f, allow_unicode=True, sort_keys=False)
-
 
 def find_metrics_row(metrics_csv: Path, model_name: str):
     if not metrics_csv.exists():
@@ -174,8 +162,8 @@ def main():
             tmp_dir_path = Path(tmp_dir)
             tmp_train = (tmp_dir_path / "train.yaml").resolve()
             tmp_model = (tmp_dir_path / "model.yaml").resolve()
-            save_yaml(tmp_train, train_cfg_obj)
-            save_yaml(tmp_model, model_cfg_obj)
+            dump_yaml(tmp_train, train_cfg_obj)
+            dump_yaml(tmp_model, model_cfg_obj)
 
             cmd = [
                 sys.executable,

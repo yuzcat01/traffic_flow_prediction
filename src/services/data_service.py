@@ -7,16 +7,14 @@ from typing import Optional, Dict, Any
 import numpy as np
 import yaml
 
-from datasets.traffic_dataset import build_adjacency_matrix, get_flow_data, resolve_graph_config
-from utils.config import load_yaml
+from src.datasets.traffic_dataset import build_adjacency_matrix, get_flow_data, resolve_graph_config
+from src.project_paths import get_project_root, to_project_relative_path
+from src.utils.config import load_yaml
 
 
 class DataService:
     def __init__(self, project_root: Optional[str] = None):
-        if project_root is None:
-            self.project_root = Path(__file__).resolve().parents[2]
-        else:
-            self.project_root = Path(project_root).resolve()
+        self.project_root = get_project_root(project_root)
 
     def _resolve_path(self, path_str: str) -> Path:
         path = Path(path_str)
@@ -25,10 +23,7 @@ class DataService:
         return (self.project_root / path).resolve()
 
     def _to_project_relative_path(self, path: Path) -> str:
-        try:
-            return str(path.resolve().relative_to(self.project_root))
-        except ValueError:
-            return str(path.resolve())
+        return to_project_relative_path(path, project_root=self.project_root)
 
     def import_data_file(self, src_path: str, data_kind: str = "flow") -> Dict[str, str]:
         src = Path(src_path).resolve()

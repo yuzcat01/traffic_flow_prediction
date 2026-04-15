@@ -1,12 +1,23 @@
+from pathlib import Path
+from typing import Union
+
 import yaml
 
 
-def load_yaml(path: str):
-    with open(path, "r", encoding="utf-8") as f:
+PathLike = Union[str, Path]
+
+
+def load_yaml(path: PathLike):
+    with open(Path(path), "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     if cfg is None:
         raise ValueError(f"YAML config is empty or invalid: {path}")
     return cfg
+
+
+def dump_yaml(path: PathLike, payload: dict):
+    with open(Path(path), "w", encoding="utf-8") as f:
+        yaml.safe_dump(payload, f, allow_unicode=True, sort_keys=False)
 
 
 def deep_merge_dict(a: dict, b: dict):
@@ -24,3 +35,12 @@ def merge_configs(*configs):
     for cfg in configs:
         merged = deep_merge_dict(merged, cfg)
     return merged
+
+
+def deep_update_dict(base: dict, updates: dict):
+    for key, value in updates.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            deep_update_dict(base[key], value)
+        else:
+            base[key] = value
+    return base

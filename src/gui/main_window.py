@@ -13,13 +13,13 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from gui.pages.data_page import DataPage
-from gui.pages.home_page import HomePage
-from gui.pages.infer_page import InferPage
-from gui.pages.model_manage_page import ModelManagePage
-from gui.pages.results_page import ResultsPage
-from gui.pages.train_page import TrainPage
-from gui.styles.qss import MAIN_QSS
+from src.gui.pages.data_page import DataPage
+from src.gui.pages.home_page import HomePage
+from src.gui.pages.infer_page import InferPage
+from src.gui.pages.model_manage_page import ModelManagePage
+from src.gui.pages.results_page import ResultsPage
+from src.gui.pages.train_page import TrainPage
+from src.gui.styles.qss import MAIN_QSS
 
 
 class MainWindow(QMainWindow):
@@ -183,7 +183,7 @@ class MainWindow(QMainWindow):
                 raise RuntimeError(f"未找到 run_config: {row.get('model_name', '')}")
 
             self.label_status.setText("状态：模型加载中...")
-            from services.predictor import TrafficPredictor
+            from src.services.predictor import TrafficPredictor
             self.predictor = TrafficPredictor(
                 run_config_path=run_config_path,
                 checkpoint_path=ckpt_path,
