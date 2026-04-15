@@ -373,13 +373,13 @@ class ResultsPage(QWidget):
         self.label_pred_fig.setAlignment(Qt.AlignCenter)
         self.label_pred_fig.setMinimumHeight(300)
         self.label_pred_fig.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.label_pred_fig.setStyleSheet("border: 1px solid #d1d5db; border-radius: 8px; background: #ffffff;")
+        self.label_pred_fig.setStyleSheet("border: 1px solid #d1d5db; border-radius: 8px; background: #ffffff; color: #64748b;")
 
         self.label_loss_fig = QLabel("损失曲线")
         self.label_loss_fig.setAlignment(Qt.AlignCenter)
         self.label_loss_fig.setMinimumHeight(300)
         self.label_loss_fig.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.label_loss_fig.setStyleSheet("border: 1px solid #d1d5db; border-radius: 8px; background: #ffffff;")
+        self.label_loss_fig.setStyleSheet("border: 1px solid #d1d5db; border-radius: 8px; background: #ffffff; color: #64748b;")
 
         fig_layout.addWidget(self.label_pred_fig, 1)
         fig_layout.addWidget(self.label_loss_fig, 1)
@@ -387,11 +387,11 @@ class ResultsPage(QWidget):
         layout.addWidget(title)
         layout.addWidget(desc)
         layout.addLayout(top_layout)
+        layout.addWidget(fig_group)
         layout.addWidget(compare_group)
         layout.addLayout(compare_vis_layout)
         layout.addWidget(baseline_group)
         layout.addWidget(model_compare_group)
-        layout.addWidget(fig_group)
         layout.addStretch(1)
 
         scroll_root.addWidget(panel)
@@ -406,7 +406,7 @@ class ResultsPage(QWidget):
 
     def _make_metric_value(self, text: str):
         label = QLabel(text)
-        label.setStyleSheet("font-size: 24px; font-weight: bold; color: #f2fbff;")
+        label.setStyleSheet("font-size: 24px; font-weight: bold; color: #1e3a8a;")
         label.setAlignment(Qt.AlignCenter)
         return label
 
