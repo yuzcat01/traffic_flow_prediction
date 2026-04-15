@@ -66,9 +66,7 @@ _tmp_pycache/
 data/raw/
 
 # training outputs
-results/**
-!results/
-!results/.gitkeep
+results/
 
 # model export files
 *.pth
