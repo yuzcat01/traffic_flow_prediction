@@ -2,6 +2,8 @@ import csv
 import json
 import os
 from collections import defaultdict
+from contextlib import contextmanager
+from pathlib import Path
 
 import numpy as np
 from PyQt5.QtCore import Qt
@@ -29,6 +31,7 @@ from PyQt5.QtWidgets import (
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+from PIL import Image
 
 from src.services.model_registry import ModelRegistry
 from src.services.report_service import ExperimentReportService
@@ -1112,9 +1115,63 @@ class ResultsPage(QWidget):
 
         self.canvas_compare.figure.savefig(save_path, dpi=180, bbox_inches="tight")
 
+    @staticmethod
+    @contextmanager
+    def _suppress_native_stderr():
+        try:
+            devnull_fd = os.open(os.devnull, os.O_WRONLY)
+            stderr_fd = os.dup(2)
+            os.dup2(devnull_fd, 2)
+        except Exception:
+            yield
+            return
+
+        try:
+            yield
+        finally:
+            try:
+                os.dup2(stderr_fd, 2)
+            finally:
+                os.close(stderr_fd)
+                os.close(devnull_fd)
+
+    @staticmethod
+    def _build_qt_cache_path(image_path: str) -> str:
+        source = Path(image_path)
+        cache_dir = source.parent / ".qt_image_cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        return str((cache_dir / f"{source.stem}.bmp").resolve())
+
+    def _ensure_qt_compatible_image(self, image_path: str) -> str:
+        source = Path(image_path)
+        if not source.exists() or source.suffix.lower() != ".png":
+            return image_path
+
+        cache_path = Path(self._build_qt_cache_path(str(source)))
+        try:
+            if cache_path.exists() and cache_path.stat().st_mtime >= source.stat().st_mtime:
+                return str(cache_path)
+
+            with Image.open(source) as image:
+                image.convert("RGB").save(cache_path, format="BMP")
+            return str(cache_path)
+        except Exception:
+            return image_path
+
+    def _load_pixmap_safely(self, image_path: str) -> QPixmap:
+        load_path = self._ensure_qt_compatible_image(image_path)
+        with self._suppress_native_stderr():
+            pixmap = QPixmap(load_path)
+
+        if pixmap.isNull() and load_path != image_path:
+            with self._suppress_native_stderr():
+                pixmap = QPixmap(image_path)
+
+        return pixmap
+
     def _set_image_to_label(self, label: QLabel, image_path: str):
         if image_path and os.path.exists(image_path):
-            pixmap = QPixmap(image_path)
+            pixmap = self._load_pixmap_safely(image_path)
             if not pixmap.isNull():
                 target_w = max(label.width() - 12, 100)
                 target_h = max(label.height() - 12, 100)

@@ -66,14 +66,12 @@ _tmp_pycache/
 data/raw/
 
 # training outputs
-results/checkpoints/
-results/figures/
-results/run_configs/
-results/tensorboard/
+results/**
+!results/
+!results/.gitkeep
 
 # model export files
 *.pth
 *.pt
 *.ckpt
 *.onnx
-
