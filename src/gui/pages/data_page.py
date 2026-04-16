@@ -35,6 +35,10 @@ class MplCanvas(FigureCanvas):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setMinimumHeight(320)
 
+    def reset_axes(self):
+        self.figure.clear()
+        self.ax = self.figure.add_subplot(111)
+
 
 class DataPage(QWidget):
     def __init__(self, parent=None):
@@ -447,7 +451,7 @@ class DataPage(QWidget):
             self.canvas_series.ax.clear()
             self.canvas_series.ax.set_title("暂无数据")
             self.canvas_series.draw()
-            self.canvas_heatmap.ax.clear()
+            self.canvas_heatmap.reset_axes()
             self.canvas_heatmap.ax.set_title("暂无数据")
             self.canvas_heatmap.draw()
             return
@@ -484,23 +488,19 @@ class DataPage(QWidget):
             max_points=max_points,
         )
 
+        self.canvas_heatmap.reset_axes()
         ax = self.canvas_heatmap.ax
-        ax.clear()
         image = ax.imshow(heatmap, aspect="auto", origin="lower", cmap="YlOrRd")
         ax.set_title(f"Traffic Flow Heatmap ({heatmap.shape[0]} nodes x {heatmap.shape[1]} steps)")
         ax.set_xlabel("Time Step")
         ax.set_ylabel("Node Index")
 
-        colorbar = getattr(self.canvas_heatmap, "_colorbar", None)
-        if colorbar is not None:
-            colorbar.remove()
-        self.canvas_heatmap._colorbar = self.canvas_heatmap.figure.colorbar(
+        self.canvas_heatmap.figure.colorbar(
             image,
             ax=ax,
             fraction=0.046,
             pad=0.04,
-        )
-        self.canvas_heatmap._colorbar.set_label("Traffic Flow")
+        ).set_label("Traffic Flow")
 
         self.canvas_heatmap.figure.tight_layout()
         self.canvas_heatmap.draw()

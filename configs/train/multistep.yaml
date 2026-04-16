@@ -1,0 +1,29 @@
+train:
+  epochs: 50
+  batch_size: 64
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  optimizer: adamw
+  grad_clip_norm: 5.0
+  lr_scheduler: plateau
+  lr_scheduler_factor: 0.5
+  lr_scheduler_patience: 3
+  min_lr: 0.00001
+  seed: 42
+  num_workers: 0
+  shuffle: true
+  device: cuda
+
+  val_ratio: 0.1
+  early_stop_patience: 8
+  early_stop_min_delta: 0.0001
+
+  save_dir: results
+  figure_node_id: 0
+  figure_points: 300
+  figure_horizon_step: 0
+  loss_fn: huber
+  huber_delta: 1.0
+  horizon_weight_mode: exp_decay
+  horizon_weight_gamma: 0.9
+  horizon_weights: []
