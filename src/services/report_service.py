@@ -51,7 +51,10 @@ class ExperimentReportService:
         ranking_chart_file: str = "",
         selected_chart_file: str = "",
         current_pred_fig_file: str = "",
+        current_pred_detail_fig_file: str = "",
         current_loss_fig_file: str = "",
+        horizon_chart_file: str = "",
+        horizon_curve_chart_file: str = "",
         baseline_rows: Optional[List[Dict]] = None,
         baseline_metric: str = "rmse_mean",
         baseline_chart_file: str = "",
@@ -86,9 +89,15 @@ class ExperimentReportService:
         lines.append("")
 
         if current_pred_fig_file:
-            lines.append("### Current Prediction Figure")
+            lines.append("### Current Prediction Overview")
             lines.append("")
             lines.append(f"![current_prediction]({Path(current_pred_fig_file).name})")
+            lines.append("")
+
+        if current_pred_detail_fig_file:
+            lines.append("### Current Prediction Detail")
+            lines.append("")
+            lines.append(f"![current_prediction_detail]({Path(current_pred_detail_fig_file).name})")
             lines.append("")
 
         if current_loss_fig_file:
@@ -133,6 +142,18 @@ class ExperimentReportService:
             lines.append("### Selected Models Chart")
             lines.append("")
             lines.append(f"![selected_models_chart]({Path(selected_chart_file).name})")
+            lines.append("")
+
+        if horizon_curve_chart_file:
+            lines.append("### Full Horizon Trend Chart")
+            lines.append("")
+            lines.append(f"![full_horizon_trend_chart]({Path(horizon_curve_chart_file).name})")
+            lines.append("")
+
+        if horizon_chart_file:
+            lines.append("### Selected Horizon Comparison Chart")
+            lines.append("")
+            lines.append(f"![selected_horizon_chart]({Path(horizon_chart_file).name})")
             lines.append("")
 
         lines.append("## Multi-Seed Baseline Summary")

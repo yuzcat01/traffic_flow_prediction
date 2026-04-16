@@ -20,9 +20,10 @@ class GRUTemporal(nn.Module):
     def forward(self, x):
         # x: [B, N, T, C]
         B, N, T, C = x.shape
-        x = x.reshape(B * N, T, C)
-        out, _ = self.gru(x)
-        last_hidden = out[:, -1, :]
+        x = x.contiguous().view(B * N, T, C)
+        self.gru.flatten_parameters()
+        _, hidden = self.gru(x)
+        last_hidden = hidden[-1]
         last_hidden = self.dropout(last_hidden)
-        last_hidden = last_hidden.reshape(B, N, self.hidden_dim)
+        last_hidden = last_hidden.view(B, N, self.hidden_dim)
         return last_hidden

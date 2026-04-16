@@ -13,7 +13,7 @@ from src.models.builder import build_model
 from src.project_paths import get_project_root, resolve_project_path
 from src.utils.metrics import Evaluation
 from src.utils.recorder import append_result, save_run_config
-from src.utils.visualize import plot_prediction_vs_target, plot_loss_curve
+from src.utils.visualize import plot_prediction_overview, plot_prediction_vs_target, plot_loss_curve
 
 
 class Trainer:
@@ -210,6 +210,10 @@ class Trainer:
         self.last_ckpt_path = os.path.join(ckpt_dir, f"{self.model_name}_last.pth")
         self.loss_curve_path = os.path.join(fig_dir, f"{self.model_name}_loss_curve.png")
         self.pred_fig_path = os.path.join(
+            fig_dir,
+            f"{self.model_name}_prediction_overview.png"
+        )
+        self.pred_focus_fig_path = os.path.join(
             fig_dir,
             f"{self.model_name}_node{train_cfg['figure_node_id']}_h{self.figure_horizon_step + 1}_prediction.png"
         )
@@ -511,10 +515,21 @@ class Trainer:
         plot_prediction_vs_target(
             target=target_curve[:figure_points],
             prediction=pred_curve[:figure_points],
-            save_path=self.pred_fig_path,
+            save_path=self.pred_focus_fig_path,
             title=f"{self.model_name} Prediction vs Target (Node {node_id}, Horizon {horizon_step + 1})"
         )
-        print(f"prediction figure saved to {self.pred_fig_path}")
+        print(f"focused prediction figure saved to {self.pred_focus_fig_path}")
+
+        plot_prediction_overview(
+            targets=test_result["targets"],
+            predictions=test_result["preds"],
+            save_path=self.pred_fig_path,
+            title=f"{self.model_name} Prediction Overview",
+            figure_points=figure_points,
+            focus_node_id=node_id,
+            focus_horizon_step=horizon_step,
+        )
+        print(f"prediction overview saved to {self.pred_fig_path}")
 
         horizon_metrics_dir = os.path.join(self.save_dir, "horizon_metrics")
         os.makedirs(horizon_metrics_dir, exist_ok=True)

@@ -56,6 +56,7 @@ class ResultsPage(QWidget):
 
         self.current_model_row = None
         self._pred_fig_path = ""
+        self._pred_detail_fig_path = ""
         self._loss_fig_path = ""
 
         self._all_rows = []
@@ -355,11 +356,22 @@ class ResultsPage(QWidget):
         model_chart_layout.addWidget(self.text_models_summary, 2)
 
         horizon_chart_layout = QHBoxLayout()
-        self.canvas_horizon = MplCanvas(self, width=8, height=4, dpi=100)
+        horizon_canvas_layout = QVBoxLayout()
+        horizon_canvas_layout.setSpacing(12)
+
+        self.canvas_horizon_curve = MplCanvas(self, width=8, height=3.2, dpi=100)
+        self.canvas_horizon_curve.setMinimumHeight(240)
+        self.canvas_horizon = MplCanvas(self, width=8, height=3.2, dpi=100)
+        self.canvas_horizon.setMinimumHeight(240)
+
         self.text_horizon_summary = QTextEdit()
         self.text_horizon_summary.setReadOnly(True)
         self.text_horizon_summary.setMinimumHeight(280)
-        horizon_chart_layout.addWidget(self.canvas_horizon, 3)
+
+        horizon_canvas_layout.addWidget(self.canvas_horizon_curve, 1)
+        horizon_canvas_layout.addWidget(self.canvas_horizon, 1)
+
+        horizon_chart_layout.addLayout(horizon_canvas_layout, 3)
         horizon_chart_layout.addWidget(self.text_horizon_summary, 2)
 
         model_compare_layout.addLayout(model_control)
@@ -378,6 +390,12 @@ class ResultsPage(QWidget):
         self.label_pred_fig.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.label_pred_fig.setStyleSheet("border: 1px solid #d1d5db; border-radius: 8px; background: #ffffff; color: #64748b;")
 
+        self.label_pred_detail_fig = QLabel("单节点细节图")
+        self.label_pred_detail_fig.setAlignment(Qt.AlignCenter)
+        self.label_pred_detail_fig.setMinimumHeight(300)
+        self.label_pred_detail_fig.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.label_pred_detail_fig.setStyleSheet("border: 1px solid #d1d5db; border-radius: 8px; background: #ffffff; color: #64748b;")
+
         self.label_loss_fig = QLabel("损失曲线")
         self.label_loss_fig.setAlignment(Qt.AlignCenter)
         self.label_loss_fig.setMinimumHeight(300)
@@ -385,6 +403,7 @@ class ResultsPage(QWidget):
         self.label_loss_fig.setStyleSheet("border: 1px solid #d1d5db; border-radius: 8px; background: #ffffff; color: #64748b;")
 
         fig_layout.addWidget(self.label_pred_fig, 1)
+        fig_layout.addWidget(self.label_pred_detail_fig, 1)
         fig_layout.addWidget(self.label_loss_fig, 1)
 
         layout.addWidget(title)
@@ -468,6 +487,15 @@ class ResultsPage(QWidget):
         ]
         return "\n".join(lines)
 
+    def _resolve_detail_fig_path(self, row):
+        cfg = self._load_run_config(row)
+        train_cfg = cfg.get("train", {}) if isinstance(cfg, dict) else {}
+        node_id = train_cfg.get("figure_node_id", 0)
+        horizon_step = int(row.get("figure_horizon_step", train_cfg.get("figure_horizon_step", 0))) + 1
+        return os.path.normpath(
+            os.path.join("results", "figures", f"{row.get('model_name', '')}_node{node_id}_h{horizon_step}_prediction.png")
+        )
+
     def update_view(self):
         row = self.current_model_row
         if row is None:
@@ -478,8 +506,10 @@ class ResultsPage(QWidget):
             self.label_params.setText("-")
             self.text_model_struct.setPlainText("未加载模型。")
             self._pred_fig_path = ""
+            self._pred_detail_fig_path = ""
             self._loss_fig_path = ""
             self._set_image_to_label(self.label_pred_fig, "")
+            self._set_image_to_label(self.label_pred_detail_fig, "")
             self._set_image_to_label(self.label_loss_fig, "")
             return
 
@@ -517,9 +547,11 @@ class ResultsPage(QWidget):
         self.text_model_struct.setPlainText(self._build_struct_text(row))
 
         self._pred_fig_path = os.path.normpath(row.get("fig_path", ""))
+        self._pred_detail_fig_path = self._resolve_detail_fig_path(row)
         self._loss_fig_path = os.path.normpath(os.path.join("results", "figures", f"{row.get('model_name', '')}_loss_curve.png"))
 
         self._set_image_to_label(self.label_pred_fig, self._pred_fig_path)
+        self._set_image_to_label(self.label_pred_detail_fig, self._pred_detail_fig_path)
         self._set_image_to_label(self.label_loss_fig, self._loss_fig_path)
 
         self.refresh_compare_view()
@@ -740,6 +772,16 @@ class ResultsPage(QWidget):
             self.spin_horizon_index.setValue(max_steps)
 
     def _load_horizon_metric_for_row(self, row, horizon_index, metric_key):
+        horizons = self._load_horizon_payload_for_row(row)
+        if not isinstance(horizons, list) or horizon_index < 0 or horizon_index >= len(horizons):
+            return None
+
+        try:
+            return float(horizons[horizon_index].get(metric_key, None))
+        except Exception:
+            return None
+
+    def _load_horizon_payload_for_row(self, row):
         path = str(row.get("horizon_metrics_path", "")).strip()
         if not path or not os.path.exists(path):
             return None
@@ -751,13 +793,76 @@ class ResultsPage(QWidget):
             return None
 
         horizons = payload.get("horizons", [])
-        if not isinstance(horizons, list) or horizon_index < 0 or horizon_index >= len(horizons):
+        if not isinstance(horizons, list):
+            return None
+        return horizons
+
+    def _load_horizon_series_for_row(self, row, metric_key):
+        horizons = self._load_horizon_payload_for_row(row)
+        if not isinstance(horizons, list) or not horizons:
             return None
 
-        try:
-            return float(horizons[horizon_index].get(metric_key, None))
-        except Exception:
+        values = []
+        for item in horizons:
+            try:
+                values.append(float(item.get(metric_key, None)))
+            except Exception:
+                values.append(np.nan)
+
+        if not values or all(np.isnan(v) for v in values):
             return None
+        return values
+
+    def _draw_horizon_curve_chart(self, rows, metric_key):
+        ax = self.canvas_horizon_curve.ax
+        ax.clear()
+
+        valid_count = 0
+        for row in rows:
+            values = self._load_horizon_series_for_row(row, metric_key)
+            if values is None:
+                continue
+            valid_count += 1
+            x = np.arange(1, len(values) + 1)
+            ax.plot(x, values, marker="o", linewidth=2, label=str(row.get("model_name", "")))
+
+        if valid_count == 0:
+            ax.set_title("No full-horizon metrics available")
+            ax.set_xlabel("Horizon Step")
+            ax.set_ylabel(metric_key.upper())
+            self.canvas_horizon_curve.draw()
+            return
+
+        ax.set_title(f"Full Horizon Trend | {metric_key.upper()}")
+        ax.set_xlabel("Horizon Step")
+        ax.set_ylabel(metric_key.upper())
+        ax.grid(True, linestyle="--", alpha=0.3)
+        ax.legend(fontsize=8)
+        self.canvas_horizon_curve.figure.subplots_adjust(left=0.08, right=0.98, top=0.90, bottom=0.18)
+        self.canvas_horizon_curve.draw()
+
+    def _build_horizon_summary_lines(self, rows, metric_key, horizon_index):
+        lines = [f"[Horizon Comparison] metric={metric_key}, horizon_step={horizon_index + 1}", ""]
+        for idx, item in enumerate(self._last_horizon_rows, start=1):
+            lines.append(f"{idx}. {item['model_name']} | {metric_key.upper()}={item['value']:.4f}")
+
+        lines.append("")
+        lines.append("[Full Horizon Trend]")
+        for row in rows:
+            values = self._load_horizon_series_for_row(row, metric_key)
+            if values is None:
+                lines.append(f"- {row.get('model_name', '')}: 无完整步长数据")
+                continue
+
+            best_value = np.nanmin(values)
+            worst_value = np.nanmax(values)
+            last_value = values[-1]
+            lines.append(
+                f"- {row.get('model_name', '')}: "
+                f"H1={values[0]:.4f}, H{len(values)}={last_value:.4f}, "
+                f"best={best_value:.4f}, worst={worst_value:.4f}"
+            )
+        return lines
 
     def select_top_models(self):
         rows = self.table_models_pick.rowCount()
@@ -817,12 +922,17 @@ class ResultsPage(QWidget):
 
     def compare_selected_models_by_horizon(self):
         rows = self._get_selected_model_rows()
+        self._draw_horizon_curve_chart(rows, self.combo_horizon_metric.currentText())
+
         ax = self.canvas_horizon.ax
         ax.clear()
 
         if not rows:
             ax.set_title("Please select models in table")
             self.canvas_horizon.draw()
+            self.canvas_horizon_curve.ax.clear()
+            self.canvas_horizon_curve.ax.set_title("Please select models in table")
+            self.canvas_horizon_curve.draw()
             self.text_horizon_summary.setPlainText("未选择模型。")
             self._last_horizon_rows = []
             return
@@ -871,9 +981,7 @@ class ResultsPage(QWidget):
         self.canvas_horizon.figure.subplots_adjust(left=0.08, right=0.98, top=0.88, bottom=0.30)
         self.canvas_horizon.draw()
 
-        lines = [f"[Horizon Comparison] metric={metric_key}, horizon_step={horizon_index + 1}", ""]
-        for idx, item in enumerate(self._last_horizon_rows, start=1):
-            lines.append(f"{idx}. {item['model_name']} | {metric_key.upper()}={item['value']:.4f}")
+        lines = self._build_horizon_summary_lines(rows, metric_key, horizon_index)
         self.text_horizon_summary.setPlainText("\n".join(lines))
 
     def export_selected_models_csv(self):
@@ -962,6 +1070,9 @@ class ResultsPage(QWidget):
         selected_chart_path = (report_dir / "selected_models_chart.png").resolve()
         self.canvas_models.figure.savefig(str(selected_chart_path), dpi=180, bbox_inches="tight")
 
+        horizon_curve_chart_path = (report_dir / "horizon_curve_chart.png").resolve()
+        self.canvas_horizon_curve.figure.savefig(str(horizon_curve_chart_path), dpi=180, bbox_inches="tight")
+
         horizon_chart_path = (report_dir / "horizon_compare_chart.png").resolve()
         self.canvas_horizon.figure.savefig(str(horizon_chart_path), dpi=180, bbox_inches="tight")
 
@@ -969,6 +1080,7 @@ class ResultsPage(QWidget):
         self.canvas_baseline.figure.savefig(str(baseline_chart_path), dpi=180, bbox_inches="tight")
 
         pred_fig_local = self.report_service.copy_file_if_exists(self._pred_fig_path, report_dir)
+        pred_detail_fig_local = self.report_service.copy_file_if_exists(self._pred_detail_fig_path, report_dir)
         loss_fig_local = self.report_service.copy_file_if_exists(self._loss_fig_path, report_dir)
 
         selected_rows = self._get_selected_model_rows()
@@ -1071,11 +1183,17 @@ class ResultsPage(QWidget):
             ranking_chart_file=str(ranking_chart_path),
             selected_chart_file=str(selected_chart_path),
             current_pred_fig_file=pred_fig_local,
+            current_pred_detail_fig_file=pred_detail_fig_local,
             current_loss_fig_file=loss_fig_local,
+            horizon_chart_file=str(horizon_chart_path),
+            horizon_curve_chart_file=str(horizon_curve_chart_path),
             baseline_rows=self._baseline_rows,
             baseline_metric=self.combo_baseline_metric.currentText().strip(),
             baseline_chart_file=str(baseline_chart_path),
         )
+
+        if pred_detail_fig_local:
+            self.text_models_summary.append(f"单节点细节图: {pred_detail_fig_local}")
 
         self.text_models_summary.append("")
         self.text_models_summary.append(f"报告已生成: {md_path}")
@@ -1187,5 +1305,7 @@ class ResultsPage(QWidget):
         super().resizeEvent(event)
         if hasattr(self, "label_pred_fig"):
             self._set_image_to_label(self.label_pred_fig, self._pred_fig_path)
+        if hasattr(self, "label_pred_detail_fig"):
+            self._set_image_to_label(self.label_pred_detail_fig, self._pred_detail_fig_path)
         if hasattr(self, "label_loss_fig"):
             self._set_image_to_label(self.label_loss_fig, self._loss_fig_path)

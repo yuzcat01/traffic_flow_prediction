@@ -1,6 +1,7 @@
 import csv
 import json
 import os
+from datetime import datetime
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
@@ -35,6 +36,8 @@ class ModelManagePage(QWidget):
         self.filtered_rows = []
         self.current_model_row = None
         self.load_callback = None
+        self.sort_key = "rmse"
+        self.sort_ascending = True
 
         self._init_ui()
         self.refresh_model_table()
@@ -61,17 +64,20 @@ class ModelManagePage(QWidget):
         self.combo_graph = QComboBox()
         self.combo_spatial = QComboBox()
         self.combo_temporal = QComboBox()
+        self.combo_predict_steps = QComboBox()
         self.combo_graph.setMaximumWidth(180)
         self.combo_spatial.setMaximumWidth(180)
         self.combo_temporal.setMaximumWidth(180)
+        self.combo_predict_steps.setMaximumWidth(180)
         self.edit_keyword = QLineEdit()
         self.edit_keyword.setMaximumWidth(300)
-        self.edit_keyword.setPlaceholderText("按 model_name / graph / spatial / temporal 搜索")
+        self.edit_keyword.setPlaceholderText("按 model_name / graph / spatial / temporal / predict_steps 搜索")
         self.check_best_only = QCheckBox("仅显示当前筛选下最佳项")
 
         self.combo_graph.currentIndexChanged.connect(self.apply_filters)
         self.combo_spatial.currentIndexChanged.connect(self.apply_filters)
         self.combo_temporal.currentIndexChanged.connect(self.apply_filters)
+        self.combo_predict_steps.currentIndexChanged.connect(self.apply_filters)
         self.edit_keyword.textChanged.connect(self.apply_filters)
         self.check_best_only.stateChanged.connect(self.apply_filters)
 
@@ -82,10 +88,13 @@ class ModelManagePage(QWidget):
 
         filter_layout.addWidget(QLabel("temporal:"), 1, 0)
         filter_layout.addWidget(self.combo_temporal, 1, 1)
-        filter_layout.addWidget(QLabel("关键词:"), 1, 2)
-        filter_layout.addWidget(self.edit_keyword, 1, 3)
+        filter_layout.addWidget(QLabel("predict_steps:"), 1, 2)
+        filter_layout.addWidget(self.combo_predict_steps, 1, 3)
 
-        filter_layout.addWidget(self.check_best_only, 2, 0, 1, 2)
+        filter_layout.addWidget(QLabel("关键词:"), 2, 0)
+        filter_layout.addWidget(self.edit_keyword, 2, 1, 1, 3)
+
+        filter_layout.addWidget(self.check_best_only, 3, 0, 1, 2)
 
         # ---------------- 操作区 ----------------
         btn_layout = QHBoxLayout()
@@ -113,25 +122,37 @@ class ModelManagePage(QWidget):
 
         # ---------------- 表格 ----------------
         self.table_models = QTableWidget()
-        self.table_models.setColumnCount(9)
-        self.table_models.setHorizontalHeaderLabels([
-            "model_name", "graph", "spatial", "temporal",
-            "MAE", "MAPE(%)", "RMSE", "Params", "Run Time"
-        ])
+        self.table_columns = [
+            ("model_name", "model_name"),
+            ("graph", "graph_type"),
+            ("spatial", "spatial_type"),
+            ("temporal", "temporal_type"),
+            ("predict_steps", "predict_steps"),
+            ("MAE", "mae"),
+            ("MAPE(%)", "mape"),
+            ("RMSE", "rmse"),
+            ("Params", "num_params"),
+            ("Run Time", "time"),
+        ]
+        self.table_models.setColumnCount(len(self.table_columns))
+        self._update_header_labels()
 
         header = self.table_models.horizontalHeader()
         header.setMinimumSectionSize(70)
         header.setStretchLastSection(False)
+        header.setSectionsClickable(True)
+        header.sectionClicked.connect(self._on_header_clicked)
 
         header.setSectionResizeMode(0, QHeaderView.Stretch)           # model_name
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # graph
         header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # spatial
         header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # temporal
-        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # MAE
-        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # MAPE
-        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)  # RMSE
-        header.setSectionResizeMode(7, QHeaderView.ResizeToContents)  # Params
-        header.setSectionResizeMode(8, QHeaderView.Stretch)           # Run Time
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # predict_steps
+        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # MAE
+        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)  # MAPE
+        header.setSectionResizeMode(7, QHeaderView.ResizeToContents)  # RMSE
+        header.setSectionResizeMode(8, QHeaderView.ResizeToContents)  # Params
+        header.setSectionResizeMode(9, QHeaderView.Stretch)           # Run Time
 
         self.table_models.setSelectionBehavior(QTableWidget.SelectRows)
         self.table_models.setSelectionMode(QTableWidget.SingleSelection)
@@ -144,7 +165,7 @@ class ModelManagePage(QWidget):
         self.table_models.itemSelectionChanged.connect(self._on_table_selection_changed)
 
         self.table_models.setColumnWidth(0, 220)
-        self.table_models.setColumnWidth(8, 240)
+        self.table_models.setColumnWidth(9, 240)
 
         # ---------------- 详情区 ----------------
         detail_group = QGroupBox("实验详情")
@@ -165,7 +186,7 @@ class ModelManagePage(QWidget):
         root.addWidget(panel)
 
     def refresh_model_table(self):
-        self.model_rows = self.registry.list_models(sort_by="rmse")
+        self.model_rows = self.registry.list_models(sort_by=self.sort_key)
         self._populate_filter_options()
         self.apply_filters()
 
@@ -173,34 +194,42 @@ class ModelManagePage(QWidget):
         current_graph = self.combo_graph.currentText()
         current_spatial = self.combo_spatial.currentText()
         current_temporal = self.combo_temporal.currentText()
+        current_predict_steps = self.combo_predict_steps.currentText()
 
         graph_values = sorted({str(row.get("graph_type", "")) for row in self.model_rows if row.get("graph_type", "")})
         spatial_values = sorted({str(row.get("spatial_type", "")) for row in self.model_rows if row.get("spatial_type", "")})
         temporal_values = sorted({str(row.get("temporal_type", "")) for row in self.model_rows if row.get("temporal_type", "")})
+        predict_steps_values = sorted({str(row.get("predict_steps", "")) for row in self.model_rows if row.get("predict_steps", "")}, key=lambda x: int(x))
 
         self.combo_graph.blockSignals(True)
         self.combo_spatial.blockSignals(True)
         self.combo_temporal.blockSignals(True)
+        self.combo_predict_steps.blockSignals(True)
 
         self.combo_graph.clear()
         self.combo_spatial.clear()
         self.combo_temporal.clear()
+        self.combo_predict_steps.clear()
 
         self.combo_graph.addItem("全部")
         self.combo_spatial.addItem("全部")
         self.combo_temporal.addItem("全部")
+        self.combo_predict_steps.addItem("全部")
 
         self.combo_graph.addItems(graph_values)
         self.combo_spatial.addItems(spatial_values)
         self.combo_temporal.addItems(temporal_values)
+        self.combo_predict_steps.addItems(predict_steps_values)
 
         self._restore_combo_value(self.combo_graph, current_graph)
         self._restore_combo_value(self.combo_spatial, current_spatial)
         self._restore_combo_value(self.combo_temporal, current_temporal)
+        self._restore_combo_value(self.combo_predict_steps, current_predict_steps)
 
         self.combo_graph.blockSignals(False)
         self.combo_spatial.blockSignals(False)
         self.combo_temporal.blockSignals(False)
+        self.combo_predict_steps.blockSignals(False)
 
     def _restore_combo_value(self, combo: QComboBox, value: str):
         idx = combo.findText(value)
@@ -213,6 +242,7 @@ class ModelManagePage(QWidget):
         graph_filter = self.combo_graph.currentText().strip()
         spatial_filter = self.combo_spatial.currentText().strip()
         temporal_filter = self.combo_temporal.currentText().strip()
+        predict_steps_filter = self.combo_predict_steps.currentText().strip()
         keyword = self.edit_keyword.text().strip().lower()
         best_only = self.check_best_only.isChecked()
 
@@ -227,6 +257,9 @@ class ModelManagePage(QWidget):
         if temporal_filter and temporal_filter != "全部":
             rows = [r for r in rows if str(r.get("temporal_type", "")) == temporal_filter]
 
+        if predict_steps_filter and predict_steps_filter != "全部":
+            rows = [r for r in rows if str(r.get("predict_steps", "")) == predict_steps_filter]
+
         if keyword:
             rows = [
                 r for r in rows
@@ -234,13 +267,60 @@ class ModelManagePage(QWidget):
                 or keyword in str(r.get("graph_type", "")).lower()
                 or keyword in str(r.get("spatial_type", "")).lower()
                 or keyword in str(r.get("temporal_type", "")).lower()
+                or keyword in str(r.get("predict_steps", "")).lower()
             ]
+
+        rows = self._sort_rows(rows)
 
         if best_only and rows:
             rows = [rows[0]]
 
         self.filtered_rows = rows
         self._render_table()
+
+    def _sort_rows(self, rows):
+        def _time_value(value):
+            try:
+                return datetime.strptime(str(value), "%Y-%m-%d %H:%M:%S")
+            except Exception:
+                return datetime.min
+
+        def _sort_value(row):
+            value = row.get(self.sort_key, "")
+            if self.sort_key == "time":
+                return _time_value(value)
+            if self.sort_key in {"mae", "mape", "rmse", "num_params", "predict_steps"}:
+                try:
+                    return float(value)
+                except Exception:
+                    return float("inf")
+            return str(value).lower()
+
+        return sorted(rows, key=_sort_value, reverse=not self.sort_ascending)
+
+    def _update_header_labels(self):
+        labels = []
+        for title, key in self.table_columns:
+            if key == self.sort_key:
+                arrow = " ▲" if self.sort_ascending else " ▼"
+                labels.append(f"{title}{arrow}")
+            else:
+                labels.append(title)
+        self.table_models.setHorizontalHeaderLabels(labels)
+
+    def _on_header_clicked(self, section: int):
+        if section < 0 or section >= len(self.table_columns):
+            return
+
+        _, key = self.table_columns[section]
+        if self.sort_key == key:
+            self.sort_ascending = not self.sort_ascending
+        else:
+            self.sort_key = key
+            self.sort_ascending = True
+
+        self._update_header_labels()
+        self.apply_filters()
 
     def _render_table(self):
         self.table_models.setRowCount(len(self.filtered_rows))
@@ -251,6 +331,7 @@ class ModelManagePage(QWidget):
                 row.get("graph_type", ""),
                 row.get("spatial_type", ""),
                 row.get("temporal_type", ""),
+                str(row.get("predict_steps", "")),
                 f"{row.get('mae', 0.0):.4f}",
                 f"{row.get('mape', 0.0):.4f}",
                 f"{row.get('rmse', 0.0):.4f}",
@@ -262,7 +343,7 @@ class ModelManagePage(QWidget):
                 item = QTableWidgetItem(str(value))
                 item.setToolTip(str(value))
 
-                if col_idx in [4, 5, 6, 7]:
+                if col_idx in [4, 5, 6, 7, 8]:
                     item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 else:
                     item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -394,8 +475,12 @@ class ModelManagePage(QWidget):
         self.combo_graph.setCurrentIndex(0)
         self.combo_spatial.setCurrentIndex(0)
         self.combo_temporal.setCurrentIndex(0)
+        self.combo_predict_steps.setCurrentIndex(0)
         self.edit_keyword.clear()
         self.check_best_only.setChecked(False)
+        self.sort_key = "rmse"
+        self.sort_ascending = True
+        self._update_header_labels()
         self.apply_filters()
 
     def get_best_model_row(self):

@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 
+from src.models.spatial.graph_ops import symmetric_normalize_adjacency
+
 
 class GCNSpatial(nn.Module):
     def __init__(self, in_c: int, hidden_dim: int, dropout: float = 0.0):
@@ -22,12 +24,4 @@ class GCNSpatial(nn.Module):
 
     @staticmethod
     def process_graph(graph):
-        N = graph.size(0)
-        I = torch.eye(N, dtype=torch.float32, device=graph.device)
-        graph = graph + I
-
-        degree = torch.sum(graph, dim=1).clamp_min(1e-8)
-        degree_inv_sqrt = degree.pow(-0.5)
-        degree_matrix = torch.diag(degree_inv_sqrt)
-
-        return torch.mm(torch.mm(degree_matrix, graph), degree_matrix)
+        return symmetric_normalize_adjacency(graph, add_self_loop=True)

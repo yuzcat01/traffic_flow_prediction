@@ -1,57 +1,41 @@
 import torch
 import torch.nn as nn
 
+from src.models.spatial.graph_ops import scaled_laplacian
+
 
 class ChebConv(nn.Module):
     def __init__(self, in_c: int, out_c: int, K: int):
         super(ChebConv, self).__init__()
-        self.K = K
-        self.linear = nn.Linear(in_c * K, out_c)
+        self.K = max(1, int(K))
+        self.linear = nn.Linear(in_c * self.K, out_c)
 
     def forward(self, x, graph):
-        laplacian = self.get_laplacian(graph)
-        cheb_polynomials = self.cheb_polynomial(laplacian, self.K)
-
-        out_list = []
-        for k in range(self.K):
-            T_k = cheb_polynomials[k]
-            out_k = torch.matmul(T_k, x)
-            out_list.append(out_k)
-
-        out = torch.cat(out_list, dim=-1)
+        laplacian = self.get_scaled_laplacian(graph)
+        out = self.cheb_feature_stack(x, laplacian, self.K)
         out = self.linear(out)
         return out
 
     @staticmethod
-    def get_laplacian(graph):
-        N = graph.size(0)
-        I = torch.eye(N, dtype=torch.float32, device=graph.device)
-
-        degree = torch.sum(graph, dim=1)
-        degree_inv_sqrt = degree.pow(-0.5)
-        degree_inv_sqrt[degree_inv_sqrt == float("inf")] = 0.0
-        D_inv_sqrt = torch.diag(degree_inv_sqrt)
-
-        A_norm = torch.mm(torch.mm(D_inv_sqrt, graph), D_inv_sqrt)
-        L = I - A_norm
-        return L
+    def get_scaled_laplacian(graph):
+        return scaled_laplacian(graph, add_self_loop=True)
 
     @staticmethod
-    def cheb_polynomial(laplacian, K):
-        N = laplacian.size(0)
-        I = torch.eye(N, dtype=torch.float32, device=laplacian.device)
-
-        multi_order_laplacian = [I]
+    def cheb_feature_stack(x, scaled_laplacian, K):
+        terms = [x]
         if K == 1:
-            return multi_order_laplacian
+            return torch.cat(terms, dim=-1)
 
-        multi_order_laplacian.append(laplacian)
+        t_k_minus_two = x
+        t_k_minus_one = torch.matmul(scaled_laplacian, x)
+        terms.append(t_k_minus_one)
 
-        for k in range(2, K):
-            T_k = 2 * torch.mm(laplacian, multi_order_laplacian[k - 1]) - multi_order_laplacian[k - 2]
-            multi_order_laplacian.append(T_k)
+        for _ in range(2, K):
+            t_k = 2.0 * torch.matmul(scaled_laplacian, t_k_minus_one) - t_k_minus_two
+            terms.append(t_k)
+            t_k_minus_two, t_k_minus_one = t_k_minus_one, t_k
 
-        return multi_order_laplacian
+        return torch.cat(terms, dim=-1)
 
 
 class ChebNetSpatial(nn.Module):

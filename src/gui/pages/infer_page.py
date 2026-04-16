@@ -256,6 +256,8 @@ class InferPage(QWidget):
                 mape=mape,
                 pred_node_all_h=pred_node_all_h,
                 target_node_all_h=target_node_all_h,
+                pred_all_h=result["prediction_all_horizons"],
+                target_all_h=result["target_all_horizons"],
             )
             self._update_topk_text(abs_err_all, pred_all, target_all, topk)
 
@@ -330,6 +332,16 @@ class InferPage(QWidget):
             predict_steps = self.predictor.get_predict_steps()
 
             rows = []
+            horizon_headers = []
+            for h in range(predict_steps):
+                horizon_headers.extend(
+                    [
+                        f"mae_h{h + 1}",
+                        f"mape_h{h + 1}_percent",
+                        f"rmse_h{h + 1}",
+                    ]
+                )
+
             for idx in range(sample_count):
                 sample = self.predictor.predict_test_sample(idx)
                 pred_full = np.asarray(sample["prediction_full"], dtype=float)
@@ -347,19 +359,45 @@ class InferPage(QWidget):
                 mae_h0 = float(np.mean(abs_h0))
                 rmse_h0 = float(np.sqrt(np.mean((pred_h0 - target_h0) ** 2)))
 
-                rows.append([idx, predict_steps, f"{mae_all:.6f}", f"{mape_all:.6f}", f"{rmse_all:.6f}", f"{mae_h0:.6f}", f"{rmse_h0:.6f}"])
+                row = [
+                    idx,
+                    predict_steps,
+                    f"{mae_all:.6f}",
+                    f"{mape_all:.6f}",
+                    f"{rmse_all:.6f}",
+                    f"{mae_h0:.6f}",
+                    f"{rmse_h0:.6f}",
+                ]
+                for h in range(predict_steps):
+                    pred_h = pred_full[:, h]
+                    target_h = target_full[:, h]
+                    abs_h = np.abs(pred_h - target_h)
+                    mae_h = float(np.mean(abs_h))
+                    rmse_h = float(np.sqrt(np.mean((pred_h - target_h) ** 2)))
+                    mask_h = target_h > 1e-6
+                    mape_h = (
+                        float(np.mean(np.abs((pred_h[mask_h] - target_h[mask_h]) / target_h[mask_h])) * 100.0)
+                        if np.any(mask_h)
+                        else 0.0
+                    )
+                    row.extend([f"{mae_h:.6f}", f"{mape_h:.6f}", f"{rmse_h:.6f}"])
+
+                rows.append(row)
 
             with open(save_path, "w", newline="", encoding="utf-8-sig") as f:
                 writer = csv.writer(f)
-                writer.writerow([
-                    "sample_index",
-                    "predict_steps",
-                    "mae_all_horizons",
-                    "mape_all_horizons_percent",
-                    "rmse_all_horizons",
-                    "mae_horizon0",
-                    "rmse_horizon0",
-                ])
+                writer.writerow(
+                    [
+                        "sample_index",
+                        "predict_steps",
+                        "mae_all_horizons",
+                        "mape_all_horizons_percent",
+                        "rmse_all_horizons",
+                        "mae_horizon0",
+                        "rmse_horizon0",
+                    ]
+                    + horizon_headers
+                )
                 writer.writerows(rows)
 
             QMessageBox.information(self, "导出成功", f"已保存 {sample_count} 行到:\n{save_path}")
@@ -430,6 +468,8 @@ class InferPage(QWidget):
         mape,
         pred_node_all_h,
         target_node_all_h,
+        pred_all_h,
+        target_all_h,
     ):
         model_name = "-"
         if self.current_model_row is not None:
@@ -440,6 +480,8 @@ class InferPage(QWidget):
         future_abs = np.abs(pred_node_all_h - target_node_all_h)
         future_mae = float(np.mean(future_abs)) if future_abs.size > 0 else 0.0
         future_rmse = float(np.sqrt(np.mean((pred_node_all_h - target_node_all_h) ** 2))) if future_abs.size > 0 else 0.0
+        pred_all_h = np.asarray(pred_all_h, dtype=float)
+        target_all_h = np.asarray(target_all_h, dtype=float)
 
         lines = [
             f"模型: {model_name}",
@@ -465,6 +507,25 @@ class InferPage(QWidget):
             lines.append(
                 f"H{h + 1}: pred={pred_node_all_h[h]:.4f} | target={target_node_all_h[h]:.4f} | abs_error={abs(pred_node_all_h[h] - target_node_all_h[h]):.4f}"
             )
+
+        if pred_all_h.ndim == 2 and target_all_h.ndim == 2 and pred_all_h.shape == target_all_h.shape:
+            lines.append("")
+            lines.append("全节点逐步指标:")
+            for h in range(pred_all_h.shape[1]):
+                pred_h = pred_all_h[:, h]
+                target_h = target_all_h[:, h]
+                abs_h = np.abs(pred_h - target_h)
+                mae_h = float(np.mean(abs_h))
+                rmse_h = float(np.sqrt(np.mean((pred_h - target_h) ** 2)))
+                mask_h = target_h > 1e-6
+                mape_h = (
+                    float(np.mean(np.abs((pred_h[mask_h] - target_h[mask_h]) / target_h[mask_h])) * 100.0)
+                    if np.any(mask_h)
+                    else 0.0
+                )
+                lines.append(
+                    f"H{h + 1}: MAE={mae_h:.4f} | RMSE={rmse_h:.4f} | MAPE={mape_h:.2f}%"
+                )
         self.text_predict_info.setPlainText("\n".join(lines))
 
     def _update_topk_text(self, abs_err_all, pred_all, target_all, topk):
