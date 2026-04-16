@@ -47,23 +47,19 @@ class STModel(nn.Module):
         if self.use_last_value_residual:
             self.residual_logit = nn.Parameter(torch.tensor(0.0, dtype=torch.float32))
 
-    def forward(self, data, device):
-        graph = data["graph"].to(device)
-        flow_x = data["flow_x"].to(device)  # [B, N, T, D]
+    def forward(self, data):
+        graph = data["graph"]
+        flow_x = data["flow_x"]  # [B, N, T, D]
 
         if graph.dim() == 3:
             graph = graph[0]
 
         B, N, T, D = flow_x.shape
 
-        spatial_outputs = []
-        for t in range(T):
-            x_t = flow_x[:, :, t, :]                    # [B, N, D]
-            spatial_t = self.spatial_encoder(x_t, graph)  # [B, N, hidden]
-            spatial_outputs.append(spatial_t)
-
-        spatial_seq = torch.stack(spatial_outputs, dim=0).permute(1, 2, 0, 3)  # [B, N, T, C]
-        temporal_out = self.temporal_encoder(spatial_seq)                       # [B, N, hidden]
+        flow_seq = flow_x.permute(0, 2, 1, 3).reshape(B * T, N, D)  # [B*T, N, D]
+        spatial_seq = self.spatial_encoder(flow_seq, graph)
+        spatial_seq = spatial_seq.view(B, T, N, -1).permute(0, 2, 1, 3)  # [B, N, T, C]
+        temporal_out = self.temporal_encoder(spatial_seq)                 # [B, N, hidden]
 
         if self.head_type == "linear":
             pred = self.output_head(self.output_dropout(temporal_out))          # [B, N, H_out * D_out]

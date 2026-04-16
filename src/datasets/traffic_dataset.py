@@ -163,6 +163,123 @@ def resolve_graph_config(graph_cfg: Optional[Any] = None, graph_type: Optional[s
     return resolved
 
 
+def resolve_preprocess_config(preprocess_cfg: Optional[Any] = None) -> Dict[str, Any]:
+    if isinstance(preprocess_cfg, dict):
+        resolved = dict(preprocess_cfg)
+    else:
+        resolved = {}
+
+    missing_strategy = str(resolved.get("missing_strategy", "none")).strip().lower()
+    alias_map = {
+        "linear": "linear_interpolate",
+        "linear_interp": "linear_interpolate",
+        "ffill": "forward_fill",
+        "mean": "mean_fill",
+    }
+    missing_strategy = alias_map.get(missing_strategy, missing_strategy)
+    if missing_strategy not in {"none", "linear_interpolate", "forward_fill", "mean_fill"}:
+        raise ValueError(
+            "dataset.preprocess.missing_strategy must be one of: "
+            "none, linear_interpolate, forward_fill, mean_fill"
+        )
+
+    clip_min = resolved.get("clip_min", 0.0)
+    clip_min = None if clip_min is None else float(clip_min)
+
+    clip_max_quantile = resolved.get("clip_max_quantile")
+    if clip_max_quantile in {"", None}:
+        clip_max_quantile = None
+    else:
+        clip_max_quantile = float(clip_max_quantile)
+        if not 0.0 < clip_max_quantile < 1.0:
+            raise ValueError("dataset.preprocess.clip_max_quantile must be in (0, 1)")
+
+    return {
+        "missing_strategy": missing_strategy,
+        "clip_min": clip_min,
+        "clip_max_quantile": clip_max_quantile,
+    }
+
+
+def _fill_missing_series(values: np.ndarray, strategy: str) -> np.ndarray:
+    if strategy == "none":
+        return np.nan_to_num(values, nan=0.0).astype(np.float32, copy=False)
+
+    mask = np.isnan(values)
+    if not np.any(mask):
+        return values.astype(np.float32, copy=False)
+
+    valid_idx = np.flatnonzero(~mask)
+    if valid_idx.size == 0:
+        return np.zeros_like(values, dtype=np.float32)
+
+    filled = values.astype(np.float32, copy=True)
+    time_idx = np.arange(values.shape[0], dtype=np.float32)
+
+    if strategy == "linear_interpolate":
+        filled[mask] = np.interp(time_idx[mask], time_idx[valid_idx], filled[valid_idx]).astype(np.float32)
+        return filled
+
+    if strategy == "forward_fill":
+        last_value = float(filled[valid_idx[0]])
+        for idx in range(filled.shape[0]):
+            if np.isnan(filled[idx]):
+                filled[idx] = last_value
+            else:
+                last_value = float(filled[idx])
+        return filled
+
+    if strategy == "mean_fill":
+        mean_value = float(np.mean(filled[valid_idx]))
+        filled[mask] = mean_value
+        return filled
+
+    raise ValueError(f"Unsupported missing strategy: {strategy}")
+
+
+def _fill_missing_values(flow_data: np.ndarray, strategy: str) -> np.ndarray:
+    if strategy == "none" and not np.isnan(flow_data).any():
+        return flow_data.astype(np.float32, copy=False)
+
+    cleaned = np.empty_like(flow_data, dtype=np.float32)
+    num_nodes, _, num_features = flow_data.shape
+    for node_idx in range(num_nodes):
+        for feat_idx in range(num_features):
+            cleaned[node_idx, :, feat_idx] = _fill_missing_series(
+                flow_data[node_idx, :, feat_idx],
+                strategy=strategy,
+            )
+    return cleaned
+
+
+def _clip_flow_values(
+    flow_data: np.ndarray,
+    clip_min: Optional[float],
+    clip_max_quantile: Optional[float],
+) -> Tuple[np.ndarray, Dict[str, Any]]:
+    clipped = flow_data.astype(np.float32, copy=True)
+    stats: Dict[str, Any] = {
+        "clip_min": clip_min,
+        "clip_max_quantile": clip_max_quantile,
+        "clip_max_value": None,
+        "clipped_value_count": 0,
+    }
+
+    if clip_min is not None:
+        below_mask = clipped < clip_min
+        stats["clipped_value_count"] += int(np.count_nonzero(below_mask))
+        clipped[below_mask] = clip_min
+
+    if clip_max_quantile is not None and clipped.size > 0:
+        max_value = float(np.quantile(clipped, clip_max_quantile))
+        above_mask = clipped > max_value
+        stats["clip_max_value"] = max_value
+        stats["clipped_value_count"] += int(np.count_nonzero(above_mask))
+        clipped[above_mask] = max_value
+
+    return clipped, stats
+
+
 def build_adjacency_matrix(
     distance_file: str,
     num_nodes: int,
@@ -171,6 +288,7 @@ def build_adjacency_matrix(
     flow_file: Optional[str] = None,
     flow_data: Optional[np.ndarray] = None,
     flow_slice: Optional[Tuple[int, int]] = None,
+    preprocess_cfg: Optional[Dict[str, Any]] = None,
 ) -> np.ndarray:
     graph_cfg = resolve_graph_config(graph_cfg=graph_cfg)
     graph_type = graph_cfg["type"]
@@ -191,7 +309,7 @@ def build_adjacency_matrix(
     if flow_data is None:
         if flow_file is None:
             raise ValueError(f"graph.type={graph_type} requires flow_file or flow_data")
-        flow_data = get_flow_data(flow_file)
+        flow_data = get_flow_data(flow_file, preprocess_cfg=preprocess_cfg)
 
     if flow_slice is not None:
         start_t, end_t = flow_slice
@@ -241,7 +359,11 @@ def get_adjacent_matrix(
     )
 
 
-def get_flow_data(flow_file: str) -> np.ndarray:
+def get_flow_data(
+    flow_file: str,
+    preprocess_cfg: Optional[Dict[str, Any]] = None,
+    return_stats: bool = False,
+):
     if not os.path.exists(flow_file):
         raise FileNotFoundError(f"flow_file not found: {flow_file}")
 
@@ -252,9 +374,42 @@ def get_flow_data(flow_file: str) -> np.ndarray:
     flow_data = data["data"]  # [T, N, D]
     flow_data = flow_data.transpose([1, 0, 2])[:, :, 0][:, :, np.newaxis]  # [N, T, 1]
     flow_data = flow_data.astype(np.float32)
-    flow_data = np.maximum(flow_data, 0.0)
 
+    preprocess_cfg = resolve_preprocess_config(preprocess_cfg=preprocess_cfg)
+    missing_before = int(np.isnan(flow_data).sum())
+
+    flow_data = _fill_missing_values(flow_data, strategy=preprocess_cfg["missing_strategy"])
+    flow_data, clip_stats = _clip_flow_values(
+        flow_data=flow_data,
+        clip_min=preprocess_cfg["clip_min"],
+        clip_max_quantile=preprocess_cfg["clip_max_quantile"],
+    )
+
+    stats = {
+        "missing_strategy": preprocess_cfg["missing_strategy"],
+        "missing_value_count_before": missing_before,
+        "missing_value_count_after": int(np.isnan(flow_data).sum()),
+        "clip_min": clip_stats["clip_min"],
+        "clip_max_quantile": clip_stats["clip_max_quantile"],
+        "clip_max_value": clip_stats["clip_max_value"],
+        "clipped_value_count": clip_stats["clipped_value_count"],
+    }
+
+    if return_stats:
+        return flow_data, stats
     return flow_data
+
+
+def traffic_batch_collate(batch):
+    _require_torch()
+    if not batch:
+        raise ValueError("traffic_batch_collate received an empty batch")
+
+    return {
+        "graph": batch[0]["graph"],
+        "flow_x": torch.stack([item["flow_x"] for item in batch], dim=0),
+        "flow_y": torch.stack([item["flow_y"] for item in batch], dim=0),
+    }
 
 
 class LoadData(Dataset):
@@ -269,6 +424,7 @@ class LoadData(Dataset):
         predict_steps: int = 1,
         graph_type: str = "connect",
         graph_cfg: Optional[Dict[str, Any]] = None,
+        preprocess_cfg: Optional[Dict[str, Any]] = None,
         id_file: Optional[str] = None,
         norm_base: Optional[Tuple[np.ndarray, np.ndarray]] = None,
         norm_source_range: Optional[Tuple[int, int]] = None,
@@ -289,11 +445,16 @@ class LoadData(Dataset):
         self.time_interval = time_interval
         self.one_day_length = int(24 * 60 / self.time_interval)
         self.graph_cfg = resolve_graph_config(graph_cfg=graph_cfg, graph_type=graph_type)
+        self.preprocess_cfg = resolve_preprocess_config(preprocess_cfg=preprocess_cfg)
 
         self.requested_train_steps = int(self.train_days * self.one_day_length)
         self.requested_test_steps = int(self.test_days * self.one_day_length)
 
-        raw_flow_data = get_flow_data(data_path[1])
+        raw_flow_data, self.preprocess_stats = get_flow_data(
+            data_path[1],
+            preprocess_cfg=self.preprocess_cfg,
+            return_stats=True,
+        )
         self.total_steps = int(raw_flow_data.shape[1])
 
         self.train_total_steps = min(self.requested_train_steps, self.total_steps)
@@ -309,6 +470,7 @@ class LoadData(Dataset):
             graph_cfg=self.graph_cfg,
             flow_data=raw_flow_data,
             flow_slice=(0, graph_flow_end),
+            preprocess_cfg=self.preprocess_cfg,
         )
 
         if norm_base is None:
@@ -339,6 +501,8 @@ class LoadData(Dataset):
             min_data=self.flow_norm[1],
             data=raw_flow_data,
         )
+        self.graph_tensor = torch.from_numpy(self.graph.astype(np.float32, copy=False))
+        self.flow_tensor = torch.from_numpy(self.flow_data)
 
     def __len__(self):
         if self.train_mode == "train":
@@ -359,15 +523,12 @@ class LoadData(Dataset):
             raise ValueError(f"train_mode [{self.train_mode}] is not defined")
 
         data_x, data_y = LoadData.slice_data(
-            data=self.flow_data,
+            data=self.flow_tensor,
             history_length=self.history_length,
             predict_steps=self.predict_steps,
             index=data_index,
             train_mode=self.train_mode,
         )
-
-        data_x = LoadData.to_tensor(data_x)               # [N, H, D]
-        data_y = LoadData.to_tensor(data_y)              # [N, H_out, D]
 
         if data_x.shape[1] != self.history_length:
             raise IndexError(
@@ -379,7 +540,7 @@ class LoadData(Dataset):
             )
 
         return {
-            "graph": LoadData.to_tensor(self.graph),
+            "graph": self.graph_tensor,
             "flow_x": data_x,
             "flow_y": data_y,
         }
@@ -429,4 +590,6 @@ class LoadData(Dataset):
     @staticmethod
     def to_tensor(data):
         _require_torch()
-        return torch.tensor(data, dtype=torch.float32)
+        if isinstance(data, torch.Tensor):
+            return data.to(dtype=torch.float32)
+        return torch.from_numpy(np.asarray(data, dtype=np.float32))

@@ -2,6 +2,7 @@ from pathlib import Path
 
 from PyQt5.QtWidgets import (
     QComboBox,
+    QDoubleSpinBox,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -133,6 +134,24 @@ class DataPage(QWidget):
         self.spin_time_interval.setValue(5)
         self.spin_time_interval.setMaximumWidth(160)
 
+        self.combo_missing_strategy = QComboBox()
+        self.combo_missing_strategy.addItems(["none", "linear_interpolate", "forward_fill", "mean_fill"])
+        self.combo_missing_strategy.setMaximumWidth(220)
+
+        self.spin_clip_min = QDoubleSpinBox()
+        self.spin_clip_min.setDecimals(3)
+        self.spin_clip_min.setRange(-1000000.0, 1000000.0)
+        self.spin_clip_min.setValue(0.0)
+        self.spin_clip_min.setMaximumWidth(160)
+
+        self.spin_clip_quantile = QDoubleSpinBox()
+        self.spin_clip_quantile.setDecimals(3)
+        self.spin_clip_quantile.setRange(0.0, 0.999)
+        self.spin_clip_quantile.setSingleStep(0.01)
+        self.spin_clip_quantile.setValue(0.0)
+        self.spin_clip_quantile.setToolTip("0 表示不启用高分位裁剪")
+        self.spin_clip_quantile.setMaximumWidth(160)
+
         self.btn_create_data_cfg = QPushButton("生成数据配置")
         self.btn_create_data_cfg.clicked.connect(self.create_data_config)
 
@@ -159,7 +178,15 @@ class DataPage(QWidget):
         io_layout.addWidget(QLabel("test_days:"), 4, 2)
         io_layout.addWidget(self.spin_test_days, 4, 3)
 
-        io_layout.addWidget(self.btn_create_data_cfg, 3, 4, 2, 1)
+        io_layout.addWidget(QLabel("missing_strategy:"), 5, 0)
+        io_layout.addWidget(self.combo_missing_strategy, 5, 1)
+        io_layout.addWidget(QLabel("clip_min:"), 5, 2)
+        io_layout.addWidget(self.spin_clip_min, 5, 3)
+
+        io_layout.addWidget(QLabel("clip_max_quantile:"), 6, 0)
+        io_layout.addWidget(self.spin_clip_quantile, 6, 1)
+
+        io_layout.addWidget(self.btn_create_data_cfg, 3, 4, 4, 1)
 
         info_layout = QHBoxLayout()
         info_layout.setSpacing(16)
@@ -195,6 +222,12 @@ class DataPage(QWidget):
         self.spin_points.setMaximumWidth(120)
         self.spin_points.valueChanged.connect(self.update_plot)
 
+        self.spin_heatmap_nodes = QSpinBox()
+        self.spin_heatmap_nodes.setRange(8, 256)
+        self.spin_heatmap_nodes.setValue(32)
+        self.spin_heatmap_nodes.setMaximumWidth(120)
+        self.spin_heatmap_nodes.valueChanged.connect(self.update_plot)
+
         self.btn_refresh_plot = QPushButton("刷新曲线")
         self.btn_refresh_plot.clicked.connect(self.update_plot)
 
@@ -210,16 +243,30 @@ class DataPage(QWidget):
         preview_ctrl_layout.addWidget(QLabel("显示点数:"))
         preview_ctrl_layout.addWidget(self.spin_points)
         preview_ctrl_layout.addSpacing(10)
+        preview_ctrl_layout.addWidget(QLabel("热力图节点数:"))
+        preview_ctrl_layout.addWidget(self.spin_heatmap_nodes)
+        preview_ctrl_layout.addSpacing(10)
         preview_ctrl_layout.addWidget(self.btn_refresh_plot)
         preview_ctrl_layout.addSpacing(10)
         preview_ctrl_layout.addWidget(self.btn_export_summary)
         preview_ctrl_layout.addWidget(self.btn_export_series)
         preview_ctrl_layout.addStretch()
 
+        figure_row = QHBoxLayout()
+        figure_row.setSpacing(16)
+
         figure_group = QGroupBox("节点流量曲线")
         figure_layout = QVBoxLayout(figure_group)
         self.canvas_series = MplCanvas(self, width=9, height=4, dpi=100)
         figure_layout.addWidget(self.canvas_series)
+
+        heatmap_group = QGroupBox("时空热力图预览")
+        heatmap_layout = QVBoxLayout(heatmap_group)
+        self.canvas_heatmap = MplCanvas(self, width=9, height=4, dpi=100)
+        heatmap_layout.addWidget(self.canvas_heatmap)
+
+        figure_row.addWidget(figure_group, 1)
+        figure_row.addWidget(heatmap_group, 1)
 
         layout.addWidget(title)
         layout.addWidget(desc)
@@ -227,7 +274,7 @@ class DataPage(QWidget):
         layout.addWidget(io_group)
         layout.addLayout(info_layout)
         layout.addWidget(preview_ctrl_group)
-        layout.addWidget(figure_group)
+        layout.addLayout(figure_row)
 
         root.addWidget(panel)
 
@@ -299,6 +346,11 @@ class DataPage(QWidget):
                 train_days=self.spin_train_days.value(),
                 test_days=self.spin_test_days.value(),
                 time_interval=self.spin_time_interval.value(),
+                preprocess_cfg={
+                    "missing_strategy": self.combo_missing_strategy.currentText(),
+                    "clip_min": self.spin_clip_min.value(),
+                    "clip_max_quantile": self.spin_clip_quantile.value() or None,
+                },
             )
             self.refresh_config_options()
 
@@ -327,12 +379,17 @@ class DataPage(QWidget):
 
             max_node = max(0, int(self.preview["num_nodes_actual"]) - 1)
             self.spin_node_id.setRange(0, max_node)
+            self.spin_heatmap_nodes.setRange(1, max(1, int(self.preview["num_nodes_actual"])))
 
             self.edit_dataset_name.setText(str(self.preview.get("dataset_name", "ImportedDataset")))
             self.spin_num_nodes.setValue(int(self.preview.get("num_nodes_actual", 307)))
             self.spin_train_days.setValue(int(self.preview.get("train_days", 45)))
             self.spin_test_days.setValue(int(self.preview.get("test_days", 14)))
             self.spin_time_interval.setValue(int(self.preview.get("time_interval", 5)))
+            preprocess_cfg = self.preview.get("preprocess_cfg", {})
+            self.combo_missing_strategy.setCurrentText(str(preprocess_cfg.get("missing_strategy", "none")))
+            self.spin_clip_min.setValue(float(preprocess_cfg.get("clip_min", 0.0) or 0.0))
+            self.spin_clip_quantile.setValue(float(preprocess_cfg.get("clip_max_quantile") or 0.0))
 
             self._update_summary_text()
             self._update_graph_text()
@@ -367,6 +424,7 @@ class DataPage(QWidget):
             f"graph_type: {p['graph_type']}",
             f"train_samples: {p['train_samples']}",
             f"test_samples: {p['test_samples']}",
+            f"preprocess_cfg: {p.get('preprocess_cfg', {})}",
         ]
         self.text_summary.setPlainText("\n".join(lines))
 
@@ -380,6 +438,7 @@ class DataPage(QWidget):
             f"nonzero_edges: {p['nonzero_edges']}",
             f"density: {p['density']:.6f}",
             f"graph_cfg: {p['graph_cfg']}",
+            f"preprocess_stats: {p.get('preprocess_stats', {})}",
         ]
         self.text_graph.setPlainText("\n".join(lines))
 
@@ -388,6 +447,9 @@ class DataPage(QWidget):
             self.canvas_series.ax.clear()
             self.canvas_series.ax.set_title("暂无数据")
             self.canvas_series.draw()
+            self.canvas_heatmap.ax.clear()
+            self.canvas_heatmap.ax.set_title("暂无数据")
+            self.canvas_heatmap.draw()
             return
 
         node_id = self.spin_node_id.value()
@@ -410,6 +472,38 @@ class DataPage(QWidget):
         ax.grid(True, linestyle="--", alpha=0.3)
         self.canvas_series.figure.tight_layout()
         self.canvas_series.draw()
+        self._update_heatmap(max_points=max_points)
+
+    def _update_heatmap(self, max_points: int):
+        if self.preview is None:
+            return
+
+        heatmap = self.data_service.get_flow_heatmap(
+            preview=self.preview,
+            max_nodes=self.spin_heatmap_nodes.value(),
+            max_points=max_points,
+        )
+
+        ax = self.canvas_heatmap.ax
+        ax.clear()
+        image = ax.imshow(heatmap, aspect="auto", origin="lower", cmap="YlOrRd")
+        ax.set_title(f"Traffic Flow Heatmap ({heatmap.shape[0]} nodes x {heatmap.shape[1]} steps)")
+        ax.set_xlabel("Time Step")
+        ax.set_ylabel("Node Index")
+
+        colorbar = getattr(self.canvas_heatmap, "_colorbar", None)
+        if colorbar is not None:
+            colorbar.remove()
+        self.canvas_heatmap._colorbar = self.canvas_heatmap.figure.colorbar(
+            image,
+            ax=ax,
+            fraction=0.046,
+            pad=0.04,
+        )
+        self.canvas_heatmap._colorbar.set_label("Traffic Flow")
+
+        self.canvas_heatmap.figure.tight_layout()
+        self.canvas_heatmap.draw()
 
     def export_preview_summary(self):
         if self.preview is None:

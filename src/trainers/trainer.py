@@ -8,7 +8,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Subset
 
-from src.datasets.traffic_dataset import LoadData
+from src.datasets.traffic_dataset import LoadData, traffic_batch_collate
 from src.models.builder import build_model
 from src.project_paths import get_project_root, resolve_project_path
 from src.utils.metrics import Evaluation
@@ -42,6 +42,7 @@ class Trainer:
         if self.predict_steps <= 0:
             raise ValueError("model.output.predict_steps must be > 0")
         self.graph_cfg = model_cfg.get("graph", {"type": "connect"})
+        self.preprocess_cfg = dataset_cfg.get("preprocess", {})
         self.model_name = model_cfg["name"]
         self.save_dir = str(resolve_project_path(train_cfg["save_dir"], self.project_root))
 
@@ -67,6 +68,7 @@ class Trainer:
             predict_steps=self.predict_steps,
             train_mode="train",
             graph_cfg=self.graph_cfg,
+            preprocess_cfg=self.preprocess_cfg,
             norm_source_range=(0, norm_end_t),
         )
 
@@ -106,14 +108,22 @@ class Trainer:
             predict_steps=self.predict_steps,
             train_mode="test",
             graph_cfg=self.graph_cfg,
+            preprocess_cfg=self.preprocess_cfg,
             norm_base=self.norm_base,
         )
+
+        self.loader_num_workers = int(train_cfg.get("num_workers", 0))
+        self.pin_memory = self.device.type == "cuda"
+        self.persistent_workers = self.loader_num_workers > 0
 
         self.train_loader = DataLoader(
             self.train_data,
             batch_size=train_cfg["batch_size"],
             shuffle=train_cfg["shuffle"],
-            num_workers=train_cfg["num_workers"],
+            num_workers=self.loader_num_workers,
+            pin_memory=self.pin_memory,
+            persistent_workers=self.persistent_workers,
+            collate_fn=traffic_batch_collate,
         )
 
         self.val_loader = None
@@ -122,14 +132,20 @@ class Trainer:
                 self.val_data,
                 batch_size=train_cfg["batch_size"],
                 shuffle=False,
-                num_workers=train_cfg["num_workers"],
+                num_workers=self.loader_num_workers,
+                pin_memory=self.pin_memory,
+                persistent_workers=self.persistent_workers,
+                collate_fn=traffic_batch_collate,
             )
 
         self.test_loader = DataLoader(
             self.test_data,
             batch_size=train_cfg["batch_size"],
             shuffle=False,
-            num_workers=train_cfg["num_workers"],
+            num_workers=self.loader_num_workers,
+            pin_memory=self.pin_memory,
+            persistent_workers=self.persistent_workers,
+            collate_fn=traffic_batch_collate,
         )
 
         self.model = build_model(cfg).to(self.device)
@@ -200,6 +216,14 @@ class Trainer:
 
         self.train_losses = []
         self.val_losses = []
+
+    def _move_batch_to_device(self, data):
+        non_blocking = self.pin_memory
+        return {
+            "graph": data["graph"].to(self.device, non_blocking=non_blocking),
+            "flow_x": data["flow_x"].to(self.device, non_blocking=non_blocking),
+            "flow_y": data["flow_y"].to(self.device, non_blocking=non_blocking),
+        }
 
     @staticmethod
     def _set_random_seed(seed: int):
@@ -297,8 +321,9 @@ class Trainer:
 
         with torch.no_grad():
             for data in loader:
-                pred = self.model(data, self.device)
-                target = data["flow_y"].to(self.device)
+                batch = self._move_batch_to_device(data)
+                pred = self.model(batch)
+                target = batch["flow_y"]
                 loss = self._compute_loss(pred, target)
                 total_loss += loss.item()
 
@@ -315,8 +340,9 @@ class Trainer:
 
         with torch.no_grad():
             for data in loader:
-                pred = self.model(data, self.device)
-                target = data["flow_y"].to(self.device)
+                batch = self._move_batch_to_device(data)
+                pred = self.model(batch)
+                target = batch["flow_y"]
 
                 loss = self._compute_loss(pred, target)
                 total_loss += loss.item()
@@ -388,8 +414,9 @@ class Trainer:
             for data in self.train_loader:
                 self.optimizer.zero_grad()
 
-                pred = self.model(data, self.device)
-                target = data["flow_y"].to(self.device)
+                batch = self._move_batch_to_device(data)
+                pred = self.model(batch)
+                target = batch["flow_y"]
 
                 loss = self._compute_loss(pred, target)
                 loss.backward()

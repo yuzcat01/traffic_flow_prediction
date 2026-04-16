@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from src.datasets.traffic_dataset import LoadData
+from src.datasets.traffic_dataset import LoadData, traffic_batch_collate
 from src.models.builder import build_model
 from src.project_paths import get_project_root, resolve_project_path
 from src.utils.metrics import Evaluation
@@ -38,6 +38,7 @@ class TrafficPredictor:
         self.model_cfg = self.cfg["model"]
         self.train_cfg = self.cfg["train"]
         self.graph_cfg = self.model_cfg.get("graph", {"type": "connect"})
+        self.preprocess_cfg = self.dataset_cfg.get("preprocess", {})
         self.graph_path = str(resolve_project_path(self.dataset_cfg["graph_path"], self.project_root))
         self.flow_path = str(resolve_project_path(self.dataset_cfg["flow_path"], self.project_root))
         self.save_dir = str(resolve_project_path(self.train_cfg["save_dir"], self.project_root))
@@ -106,6 +107,7 @@ class TrafficPredictor:
             predict_steps=self.predict_steps,
             train_mode="train",
             graph_cfg=self.graph_cfg,
+            preprocess_cfg=self.preprocess_cfg,
             norm_source_range=(0, norm_end_t),
         )
         return ref_train_data.flow_norm
@@ -120,6 +122,7 @@ class TrafficPredictor:
             predict_steps=self.predict_steps,
             train_mode="train",
             graph_cfg=self.graph_cfg,
+            preprocess_cfg=self.preprocess_cfg,
             norm_base=self.norm_base,
         )
         return torch.tensor(ref_train_data.graph, dtype=torch.float32, device=self.device)
@@ -134,6 +137,7 @@ class TrafficPredictor:
             predict_steps=self.predict_steps,
             train_mode="test",
             graph_cfg=self.graph_cfg,
+            preprocess_cfg=self.preprocess_cfg,
             norm_base=self.norm_base,
         )
 
@@ -197,7 +201,7 @@ class TrafficPredictor:
         }
 
         with torch.no_grad():
-            pred = self.model(data, self.device).detach().cpu().numpy()[0]  # [N, H_out, 1]
+            pred = self.model(data).detach().cpu().numpy()[0]  # [N, H_out, 1]
 
         pred = LoadData.recover_data(self.norm_base[0], self.norm_base[1], pred)
         return pred
@@ -269,6 +273,9 @@ class TrafficPredictor:
             batch_size=batch_size or self.train_cfg["batch_size"],
             shuffle=False,
             num_workers=self.train_cfg["num_workers"],
+            pin_memory=self.device.type == "cuda",
+            persistent_workers=int(self.train_cfg["num_workers"]) > 0,
+            collate_fn=traffic_batch_collate,
         )
 
         all_preds = []
@@ -276,8 +283,13 @@ class TrafficPredictor:
 
         with torch.no_grad():
             for data in loader:
-                pred = self.model(data, self.device).detach().cpu().numpy()
-                target = data["flow_y"].detach().cpu().numpy()
+                batch = {
+                    "graph": data["graph"].to(self.device, non_blocking=self.device.type == "cuda"),
+                    "flow_x": data["flow_x"].to(self.device, non_blocking=self.device.type == "cuda"),
+                    "flow_y": data["flow_y"].to(self.device, non_blocking=self.device.type == "cuda"),
+                }
+                pred = self.model(batch).detach().cpu().numpy()
+                target = batch["flow_y"].detach().cpu().numpy()
 
                 pred = LoadData.recover_data(self.norm_base[0], self.norm_base[1], pred)
                 target = LoadData.recover_data(self.norm_base[0], self.norm_base[1], target)

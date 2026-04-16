@@ -5,3 +5,7 @@ dataset:
   num_nodes: 307
   divide_days: [45, 14]
   time_interval: 5
+  preprocess:
+    missing_strategy: linear_interpolate
+    clip_min: 0.0
+    clip_max_quantile:

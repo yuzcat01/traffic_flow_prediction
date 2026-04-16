@@ -6,9 +6,11 @@
 
 - 支持 `GCN`、`ChebNet`、`GAT` 三类空间建模模块
 - 支持 `GRU` / `none` 两类时间建模模块
+- 支持缺失值处理与基础异常值裁剪预处理
 - 支持训练、测试、结果记录、模型推理
 - 支持多种建图策略：`connect`、`distance`、`correlation`、`distance_correlation`
 - 提供 PyQt GUI：数据预览、实验训练、模型管理、在线推理、结果分析
+- 提供节点曲线、指标图表、时空热力图、报告导出等分析能力
 
 ## 项目结构
 
@@ -37,6 +39,15 @@ traffic_flow_prediction/
 ├─ requirements.txt                  # 运行依赖
 └─ README.md
 ```
+
+## 文档入口
+
+补充文档已放在 `docs/` 目录：
+
+- `docs/requirements.md`：需求说明
+- `docs/technical_design.md`：技术设计说明
+- `docs/field_reference.md`：配置字段说明
+- `docs/runtime_guide.md`：本地运行与复现说明
 
 ## 快速开始
 

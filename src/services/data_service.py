@@ -7,7 +7,12 @@ from typing import Optional, Dict, Any
 import numpy as np
 import yaml
 
-from src.datasets.traffic_dataset import build_adjacency_matrix, get_flow_data, resolve_graph_config
+from src.datasets.traffic_dataset import (
+    build_adjacency_matrix,
+    get_flow_data,
+    resolve_graph_config,
+    resolve_preprocess_config,
+)
 from src.project_paths import get_project_root, to_project_relative_path
 from src.utils.config import load_yaml
 
@@ -63,6 +68,7 @@ class DataService:
         train_days: int,
         test_days: int,
         time_interval: int,
+        preprocess_cfg: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, str]:
         config_name = config_name.strip()
         dataset_name = dataset_name.strip()
@@ -94,6 +100,7 @@ class DataService:
                 "num_nodes": int(num_nodes),
                 "divide_days": [int(train_days), int(test_days)],
                 "time_interval": int(time_interval),
+                "preprocess": resolve_preprocess_config(preprocess_cfg),
             }
         }
 
@@ -159,10 +166,15 @@ class DataService:
         time_interval = int(data_cfg.get("time_interval", 5))
 
         graph_cfg = resolve_graph_config(model_cfg.get("graph", {}))
+        preprocess_cfg = resolve_preprocess_config(data_cfg.get("preprocess", {}))
         history_length = int(model_cfg.get("input", {}).get("history_length", 12))
         predict_steps = int(model_cfg.get("output", {}).get("predict_steps", 1))
 
-        flow_data = get_flow_data(str(flow_path))           # [N, T, 1]
+        flow_data, preprocess_stats = get_flow_data(
+            str(flow_path),
+            preprocess_cfg=preprocess_cfg,
+            return_stats=True,
+        )  # [N, T, 1]
         train_days = int(divide_days[0]) if len(divide_days) > 0 else 0
         test_days = int(divide_days[1]) if len(divide_days) > 1 else 0
         one_day_length = int(24 * 60 / time_interval) if time_interval > 0 else 0
@@ -173,6 +185,7 @@ class DataService:
             graph_cfg=graph_cfg,
             flow_data=flow_data,
             flow_slice=(0, train_days * one_day_length),
+            preprocess_cfg=preprocess_cfg,
         )
 
         n_nodes, total_steps, input_dim = flow_data.shape
@@ -208,6 +221,8 @@ class DataService:
             "test_samples": test_samples,
             "graph_type": graph_cfg["type"],
             "graph_cfg": graph_cfg,
+            "preprocess_cfg": preprocess_cfg,
+            "preprocess_stats": preprocess_stats,
             "history_length": history_length,
             "predict_steps": predict_steps,
             "adjacency_shape": adjacency.shape,
@@ -226,3 +241,15 @@ class DataService:
             series = series[:max_points]
 
         return series.astype(float)
+
+    def get_flow_heatmap(
+        self,
+        preview: Dict[str, Any],
+        max_nodes: int = 32,
+        max_points: int = 288,
+    ) -> np.ndarray:
+        flow_data = preview["flow_data"]
+        max_nodes = max(1, min(int(max_nodes), flow_data.shape[0]))
+        max_points = max(1, min(int(max_points), flow_data.shape[1]))
+        heatmap = flow_data[:max_nodes, :max_points, 0]
+        return heatmap.astype(float, copy=False)
