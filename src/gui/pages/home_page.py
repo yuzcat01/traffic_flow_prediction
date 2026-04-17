@@ -6,6 +6,7 @@ from PyQt5.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QHeaderView,
+    QHBoxLayout,
     QLabel,
     QSizePolicy,
     QTableWidget,
@@ -28,13 +29,12 @@ class MplCanvas(FigureCanvas):
         super().__init__(self.figure)
         self.setParent(parent)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.setMinimumHeight(280)
+        self.setMinimumHeight(300)
 
 
 class HomePage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-
         self._init_ui()
 
     def _init_ui(self):
@@ -45,26 +45,68 @@ class HomePage(QWidget):
         panel = QFrame()
         panel.setObjectName("PagePanel")
         panel_layout = QVBoxLayout(panel)
-        panel_layout.setContentsMargins(20, 20, 20, 20)
-        panel_layout.setSpacing(16)
+        panel_layout.setContentsMargins(24, 24, 24, 24)
+        panel_layout.setSpacing(18)
 
-        # ---------------- 标题区 ----------------
-        title = QLabel("交通流量预测系统")
-        title.setStyleSheet("font-size: 24px; font-weight: bold;")
+        hero = QFrame()
+        hero.setObjectName("HeroPanel")
+        hero_layout = QHBoxLayout(hero)
+        hero_layout.setContentsMargins(24, 22, 24, 22)
+        hero_layout.setSpacing(20)
+
+        hero_left = QVBoxLayout()
+        hero_left.setSpacing(10)
+
+        eyebrow = QLabel("System Overview")
+        eyebrow.setObjectName("HeroEyebrow")
+
+        title = QLabel("交通流量预测与可视化分析平台")
+        title.setObjectName("HeroTitle")
+        title.setWordWrap(True)
 
         subtitle = QLabel(
-            "基于图神经网络的交通流量预测实验与分析平台\n"
-            "支持数据预览、模型训练、实验管理、在线推理与结果对比分析。"
+            "提供数据接入、模型训练、推理分析和结果管理的一体化工作流，"
+            "用于交通流量预测任务的实验运行与可视化分析。"
         )
-        subtitle.setStyleSheet("color: #6b7280; line-height: 1.6;")
+        subtitle.setObjectName("HeroSubtitle")
         subtitle.setWordWrap(True)
 
-        panel_layout.addWidget(title)
-        panel_layout.addWidget(subtitle)
+        badge_row = QHBoxLayout()
+        badge_row.setSpacing(10)
+        badge_row.addWidget(self._make_badge("GCN / ChebNet / GAT"))
+        badge_row.addWidget(self._make_badge("多种建图策略"))
+        badge_row.addWidget(self._make_badge("训练-推理-分析一体化"))
+        badge_row.addStretch()
 
-        # ---------------- 指标卡片 ----------------
+        hero_left.addWidget(eyebrow)
+        hero_left.addWidget(title)
+        hero_left.addWidget(subtitle)
+        hero_left.addLayout(badge_row)
+
+        hero_right = QFrame()
+        hero_right.setObjectName("HeroSummary")
+        hero_right.setMinimumWidth(300)
+        hero_right_layout = QVBoxLayout(hero_right)
+        hero_right_layout.setContentsMargins(18, 18, 18, 18)
+        hero_right_layout.setSpacing(8)
+
+        hero_summary_title = QLabel("当前概况")
+        hero_summary_title.setObjectName("HeroSummaryTitle")
+
+        self.label_hero_summary = QLabel("等待实验记录载入。")
+        self.label_hero_summary.setObjectName("HeroSummaryText")
+        self.label_hero_summary.setWordWrap(True)
+        self.label_hero_summary.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+
+        hero_right_layout.addWidget(hero_summary_title)
+        hero_right_layout.addWidget(self.label_hero_summary, 1)
+
+        hero_layout.addLayout(hero_left, 3)
+        hero_layout.addWidget(hero_right, 2)
+        panel_layout.addWidget(hero)
+
         card_layout = QGridLayout()
-        card_layout.setSpacing(16)
+        card_layout.setSpacing(14)
 
         self.card_total_runs = MetricCard("实验总数", "0")
         self.card_best_model = MetricCard("当前最佳模型", "-")
@@ -76,102 +118,91 @@ class HomePage(QWidget):
         card_layout.addWidget(self.card_total_runs, 0, 0)
         card_layout.addWidget(self.card_best_model, 0, 1)
         card_layout.addWidget(self.card_best_rmse, 0, 2)
-
         card_layout.addWidget(self.card_best_mae, 1, 0)
         card_layout.addWidget(self.card_spatial_count, 1, 1)
         card_layout.addWidget(self.card_graph_count, 1, 2)
-
         panel_layout.addLayout(card_layout)
 
-        chart_group = QGroupBox("实验概览图")
+        chart_group = QGroupBox("实验概览")
         chart_layout = QVBoxLayout(chart_group)
-        self.canvas_overview = MplCanvas(self, width=10, height=3.2, dpi=100)
+        self.canvas_overview = MplCanvas(self, width=10, height=3.4, dpi=100)
         chart_layout.addWidget(self.canvas_overview)
         panel_layout.addWidget(chart_group)
 
-        # ---------------- 中间区域：系统状态 + 最近实验 ----------------
         middle_layout = QGridLayout()
         middle_layout.setHorizontalSpacing(16)
         middle_layout.setVerticalSpacing(16)
 
-        # 系统状态
-        status_group = QGroupBox("当前系统状态")
+        status_group = QGroupBox("系统状态")
         status_layout = QVBoxLayout(status_group)
-
         self.text_status = QTextEdit()
         self.text_status.setReadOnly(True)
-        self.text_status.setMinimumHeight(180)
+        self.text_status.setMinimumHeight(200)
         status_layout.addWidget(self.text_status)
 
-        # 最近实验
-        recent_group = QGroupBox("最近实验记录（按当前排序显示前 5 项）")
+        recent_group = QGroupBox("最近实验记录")
         recent_layout = QVBoxLayout(recent_group)
-
         self.table_recent = QTableWidget()
         self.table_recent.setColumnCount(6)
-        self.table_recent.setHorizontalHeaderLabels([
-            "模型名", "图类型", "空间模块", "时间模块", "RMSE", "实验时间"
-        ])
+        self.table_recent.setHorizontalHeaderLabels(
+            ["模型名称", "图类型", "空间模块", "时间模块", "RMSE", "实验时间"]
+        )
         self.table_recent.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table_recent.setSelectionBehavior(QTableWidget.SelectRows)
         self.table_recent.setSelectionMode(QTableWidget.SingleSelection)
         self.table_recent.setAlternatingRowColors(True)
         self.table_recent.setWordWrap(False)
+        self.table_recent.verticalHeader().setVisible(False)
         self.table_recent.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.table_recent.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.table_recent.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.table_recent.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         self.table_recent.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
         self.table_recent.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)
-        self.table_recent.setMinimumHeight(220)
+        self.table_recent.setMinimumHeight(240)
         recent_layout.addWidget(self.table_recent)
 
         middle_layout.addWidget(status_group, 0, 0)
         middle_layout.addWidget(recent_group, 0, 1)
-
         panel_layout.addLayout(middle_layout)
 
-        # ---------------- 底部区域：系统说明 ----------------
         bottom_layout = QGridLayout()
         bottom_layout.setHorizontalSpacing(16)
         bottom_layout.setVerticalSpacing(16)
 
-        module_group = QGroupBox("系统模块概览")
-        module_layout = QVBoxLayout(module_group)
+        alignment_group = QGroupBox("系统能力概览")
+        alignment_layout = QVBoxLayout(alignment_group)
+        self.text_alignment = QTextEdit()
+        self.text_alignment.setReadOnly(True)
+        self.text_alignment.setMinimumHeight(220)
+        alignment_layout.addWidget(self.text_alignment)
 
-        self.text_modules = QTextEdit()
-        self.text_modules.setReadOnly(True)
-        self.text_modules.setMinimumHeight(180)
-        self.text_modules.setPlainText(
-            "1. 数据管理：展示数据集信息、样本规模、图结构统计和节点曲线预览。\n"
-            "2. 实验训练：基于配置模板和页面参数覆盖启动训练任务。\n"
-            "3. 模型管理：筛选、检索、导出实验记录并加载指定模型。\n"
-            "4. 在线推理：对测试样本执行推理，分析单节点与全节点误差。\n"
-            "5. 结果分析：展示当前模型指标，并进行多实验对比分析。"
+        planning_group = QGroupBox("推荐使用流程")
+        planning_layout = QVBoxLayout(planning_group)
+        self.text_next_steps = QTextEdit()
+        self.text_next_steps.setReadOnly(True)
+        self.text_next_steps.setMinimumHeight(220)
+        self.text_next_steps.setPlainText(
+            "1. 在“数据管理”页加载数据集，确认节点规模、样本数量和图结构统计信息。\n"
+            "2. 在“实验训练”页选择默认配置或覆盖关键参数，启动训练任务并观察日志输出。\n"
+            "3. 在“模型管理”页筛选实验记录，加载需要分析的模型版本。\n"
+            "4. 在“在线推理”页查看单样本预测结果、误差分布和批量评估导出。\n"
+            "5. 在“结果分析”页对比分组指标、基线汇总、多模型结果和分步长表现。"
         )
-        module_layout.addWidget(self.text_modules)
+        planning_layout.addWidget(self.text_next_steps)
 
-        workflow_group = QGroupBox("推荐使用流程")
-        workflow_layout = QVBoxLayout(workflow_group)
-
-        self.text_workflow = QTextEdit()
-        self.text_workflow.setReadOnly(True)
-        self.text_workflow.setMinimumHeight(180)
-        self.text_workflow.setPlainText(
-            "① 在“数据管理”页确认数据集信息、图结构和节点曲线。\n"
-            "② 在“实验训练”页选择默认配置，并按需修改参数启动训练。\n"
-            "③ 在“模型管理”页筛选与加载实验结果。\n"
-            "④ 在“在线推理”页分析样本级预测效果与误差分布。\n"
-            "⑤ 在“结果分析”页查看指标、曲线与多实验对比结果。"
-        )
-        workflow_layout.addWidget(self.text_workflow)
-
-        bottom_layout.addWidget(module_group, 0, 0)
-        bottom_layout.addWidget(workflow_group, 0, 1)
-
+        bottom_layout.addWidget(alignment_group, 0, 0)
+        bottom_layout.addWidget(planning_group, 0, 1)
         panel_layout.addLayout(bottom_layout)
 
         root.addWidget(panel)
+
+    @staticmethod
+    def _make_badge(text: str) -> QLabel:
+        label = QLabel(text)
+        label.setObjectName("HeroBadge")
+        label.setAlignment(Qt.AlignCenter)
+        return label
 
     def update_summary(
         self,
@@ -193,42 +224,84 @@ class HomePage(QWidget):
             self.card_best_rmse.set_value(f"{best_row.get('rmse', 0.0):.4f}")
             self.card_best_mae.set_value(f"{best_row.get('mae', 0.0):.4f}")
 
+        spatial_counter = Counter(
+            str(row.get("spatial_type", "")) for row in rows if row.get("spatial_type", "")
+        )
+        graph_counter = Counter(
+            str(row.get("graph_type", "")) for row in rows if row.get("graph_type", "")
+        )
+
         self.card_total_runs.set_value(str(total_runs))
+        self.card_spatial_count.set_value(str(len(spatial_counter)))
+        self.card_graph_count.set_value(str(len(graph_counter)))
 
-        spatial_types = {str(r.get("spatial_type", "")) for r in rows if r.get("spatial_type", "")}
-        graph_types = {str(r.get("graph_type", "")) for r in rows if r.get("graph_type", "")}
-        self.card_spatial_count.set_value(str(len(spatial_types)))
-        self.card_graph_count.set_value(str(len(graph_types)))
-        self._update_overview_chart(rows)
+        hero_lines = [
+            f"系统状态：{status_text.replace('状态：', '') if status_text else '未知'}",
+            f"累计实验记录：{total_runs} 条",
+        ]
+        if best_row:
+            hero_lines.append(f"当前最佳：{best_row.get('model_name', '-')}")
+            hero_lines.append(
+                f"最佳结果：RMSE {best_row.get('rmse', 0.0):.4f} / MAE {best_row.get('mae', 0.0):.4f}"
+            )
+        else:
+            hero_lines.append("当前还没有实验记录，建议先跑通一组默认配置。")
+        self.label_hero_summary.setText("\n".join(hero_lines))
 
-        # 状态文本
         status_lines = [
-            f"系统状态：{status_text or '未知'}",
-            f"{current_model_text or '当前模型：未加载'}",
-            f"{device_text or '设备：-'}",
+            status_text or "状态：未知",
+            current_model_text or "当前模型：未加载",
+            device_text or "设备：-",
             "",
         ]
-
         if best_row:
-            status_lines.extend([
-                "当前最佳实验：",
-                f"模型名: {best_row.get('model_name', '-')}",
-                f"图类型: {best_row.get('graph_type', '-')}",
-                f"空间模块: {best_row.get('spatial_type', '-')}",
-                f"时间模块: {best_row.get('temporal_type', '-')}",
-                f"RMSE: {best_row.get('rmse', 0.0):.4f}",
-                f"MAE: {best_row.get('mae', 0.0):.4f}",
-                f"实验时间: {best_row.get('time', '-')}",
-            ])
+            status_lines.extend(
+                [
+                    "当前最佳实验：",
+                    f"模型名称：{best_row.get('model_name', '-')}",
+                    f"图类型：{best_row.get('graph_type', '-')}",
+                    f"空间模块：{best_row.get('spatial_type', '-')}",
+                    f"时间模块：{best_row.get('temporal_type', '-')}",
+                    f"预测步数：{best_row.get('predict_steps', '-')}",
+                    f"RMSE：{best_row.get('rmse', 0.0):.4f}",
+                    f"MAE：{best_row.get('mae', 0.0):.4f}",
+                    f"实验时间：{best_row.get('time', '-')}",
+                ]
+            )
         else:
             status_lines.append("当前暂无实验记录。")
-
         self.text_status.setPlainText("\n".join(status_lines))
 
-        # 最近实验表
-        recent_rows = rows[:5]
-        self.table_recent.setRowCount(len(recent_rows))
+        alignment_lines = [
+            "1. 数据层：支持数据导入、配置生成、缺失值处理、异常值裁剪、节点曲线预览和时空热力图预览。",
+            "2. 模型层：已实现 GCN / ChebNet / GAT 空间模块，并在统一框架下支持 GRU 时间建模。",
+            "3. 图结构层：支持 connect、distance、correlation、distance_correlation 四种建图方式。",
+            "4. 功能层：已形成数据管理、实验训练、模型管理、在线推理、结果分析五个核心页面。",
+        ]
+        if best_row:
+            alignment_lines.append(
+                f"5. 结果层：当前已有 {total_runs} 条实验记录，最佳模型为 {best_row.get('model_name', '-')}"
+                f"（RMSE {best_row.get('rmse', 0.0):.4f}）。"
+            )
+        else:
+            alignment_lines.append("5. 结果层：当前尚无实验记录，可先运行一组默认配置以生成基础分析结果。")
 
+        if spatial_counter:
+            alignment_lines.append(
+                f"6. 当前已覆盖的空间模块：{', '.join(sorted(spatial_counter.keys()))}。"
+            )
+        if graph_counter:
+            alignment_lines.append(
+                f"7. 当前已覆盖的图构建方式：{', '.join(sorted(graph_counter.keys()))}。"
+            )
+        alignment_lines.append("8. 系统支持继续扩展新的时间模块、图构建策略和可视化视图。")
+        self.text_alignment.setPlainText("\n".join(alignment_lines))
+
+        self._update_recent_table(rows[:5])
+        self._update_overview_chart(rows)
+
+    def _update_recent_table(self, recent_rows):
+        self.table_recent.setRowCount(len(recent_rows))
         for row_idx, row in enumerate(recent_rows):
             values = [
                 row.get("model_name", ""),
@@ -241,30 +314,39 @@ class HomePage(QWidget):
             for col_idx, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
                 item.setToolTip(str(value))
+                item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
                 self.table_recent.setItem(row_idx, col_idx, item)
 
     def _update_overview_chart(self, rows):
-        ax_l = self.canvas_overview.ax_left
-        ax_r = self.canvas_overview.ax_right
-        ax_l.clear()
-        ax_r.clear()
+        ax_left = self.canvas_overview.ax_left
+        ax_right = self.canvas_overview.ax_right
+        fig = self.canvas_overview.figure
+
+        ax_left.clear()
+        ax_right.clear()
+        fig.patch.set_facecolor("#ffffff")
+
+        for ax in (ax_left, ax_right):
+            ax.set_facecolor("#f8fafc")
+            for spine in ax.spines.values():
+                spine.set_color("#d9e2ef")
 
         if not rows:
-            ax_l.set_title("RMSE Trend")
-            ax_l.text(0.5, 0.5, "No Data", ha="center", va="center")
-            ax_l.set_xticks([])
-            ax_l.set_yticks([])
+            ax_left.set_title("Top Runs RMSE")
+            ax_left.text(0.5, 0.5, "No Data", ha="center", va="center", color="#64748b")
+            ax_left.set_xticks([])
+            ax_left.set_yticks([])
 
-            ax_r.set_title("Graph Type Distribution")
-            ax_r.text(0.5, 0.5, "No Data", ha="center", va="center")
-            ax_r.set_xticks([])
-            ax_r.set_yticks([])
+            ax_right.set_title("Graph Type Distribution")
+            ax_right.text(0.5, 0.5, "No Data", ha="center", va="center", color="#64748b")
+            ax_right.set_xticks([])
+            ax_right.set_yticks([])
 
-            self.canvas_overview.figure.tight_layout()
+            fig.tight_layout()
             self.canvas_overview.draw()
             return
 
-        top_rows = rows[:10]
+        top_rows = rows[: min(10, len(rows))]
         rmse_values = []
         for row in top_rows:
             try:
@@ -272,25 +354,26 @@ class HomePage(QWidget):
             except Exception:
                 rmse_values.append(0.0)
 
-        x = list(range(1, len(rmse_values) + 1))
-        ax_l.plot(x, rmse_values, marker="o", linewidth=1.8)
-        ax_l.set_title("Top Runs RMSE")
-        ax_l.set_xlabel("Rank")
-        ax_l.set_ylabel("RMSE")
-        ax_l.grid(True, linestyle="--", alpha=0.3)
+        x_values = list(range(1, len(rmse_values) + 1))
+        ax_left.plot(x_values, rmse_values, marker="o", linewidth=2.2, color="#0f766e")
+        ax_left.fill_between(x_values, rmse_values, color="#99f6e4", alpha=0.22)
+        ax_left.set_title("Top Runs RMSE")
+        ax_left.set_xlabel("Rank")
+        ax_left.set_ylabel("RMSE")
+        ax_left.grid(True, linestyle="--", alpha=0.28, color="#94a3b8")
 
-        graph_counter = Counter(str(r.get("graph_type", "unknown")) for r in rows)
+        graph_counter = Counter(str(row.get("graph_type", "unknown")) for row in rows)
         graph_items = graph_counter.most_common(8)
-        names = [k for k, _ in graph_items]
-        counts = [v for _, v in graph_items]
-        x2 = list(range(len(names)))
-        ax_r.bar(x2, counts)
-        ax_r.set_title("Graph Type Distribution")
-        ax_r.set_xlabel("Graph Type")
-        ax_r.set_ylabel("Count")
-        ax_r.set_xticks(x2)
-        ax_r.set_xticklabels(names, rotation=20, ha="right")
-        ax_r.grid(True, axis="y", linestyle="--", alpha=0.3)
+        names = [name for name, _ in graph_items]
+        counts = [count for _, count in graph_items]
+        positions = list(range(len(names)))
+        ax_right.bar(positions, counts, color="#f59e0b", edgecolor="#d97706", linewidth=1.0)
+        ax_right.set_title("Graph Type Distribution")
+        ax_right.set_xlabel("Graph Type")
+        ax_right.set_ylabel("Count")
+        ax_right.set_xticks(positions)
+        ax_right.set_xticklabels(names, rotation=18, ha="right")
+        ax_right.grid(True, axis="y", linestyle="--", alpha=0.28, color="#94a3b8")
 
-        self.canvas_overview.figure.tight_layout()
+        fig.tight_layout()
         self.canvas_overview.draw()

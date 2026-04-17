@@ -42,12 +42,19 @@ traffic_flow_prediction/
 
 ## 文档入口
 
-补充文档已放在 `docs/` 目录：
+完整文档已经整理到 `docs/` 目录，建议优先从下面几个入口阅读：
 
+- `docs/README.md`：文档索引总入口
 - `docs/requirements.md`：需求说明
 - `docs/technical_design.md`：技术设计说明
 - `docs/field_reference.md`：配置字段说明
 - `docs/runtime_guide.md`：本地运行与复现说明
+- `docs/experiment_results.md`：`h3 / h6 / h12` 三组真实实验结果
+- `docs/paper_tables.md`：论文表格与正文引用模板
+- `docs/defense_summary.md`：答辩讲解提纲
+- `docs/ppt_outline.md`：详细版 PPT 文案提纲
+- `docs/ppt_brief.md`：5 分钟左右精简答辩稿
+- `docs/defense_qa.md`：答辩常见问题清单
 
 ## 快速开始
 
@@ -107,6 +114,12 @@ pip install torch torchvision torchaudio
 ```
 
 如果你使用的是 CUDA 版本的 PyTorch，请以 PyTorch 官方安装说明为准。
+
+项目当前实际验证使用的环境名为：
+
+```bash
+traffic_gnn
+```
 
 ### 方式 2：使用 venv
 
@@ -379,13 +392,20 @@ python run_all.py --only_models gcn_gru.yaml,gat_gru.yaml --seeds 42,2026,3407
 python run_all.py --dry_run
 ```
 
+### 8) 运行轻量单元测试
+
+```bash
+python -m unittest tests.test_model_blocks
+```
+
 ## 实验输出
 
 训练完成后，项目会自动在 `results/` 下生成结果文件，例如：
 
 - `results/checkpoints/*.pth`
 - `results/figures/*_loss_curve.png`
-- `results/figures/*_prediction.png`
+- `results/figures/*_prediction_overview.png`
+- `results/figures/*_node*_h*_prediction.png`
 - `results/horizon_metrics/*.json`
 - `results/run_configs/*.json`
 - `results/metrics_summary.csv`
@@ -433,6 +453,44 @@ build_exe.bat onedir lite nopause
 - 配置、数据、结果路径统一按项目根目录解析
 - 根目录只保留真正对外的入口脚本
 - 核心实现尽量集中在 `src/` 内，避免再把业务逻辑散落到根目录
+
+## 提交前自检
+
+如果你准备做最终演示、提交代码或继续扩展，建议至少完成下面几项检查：
+
+1. 在目标环境中确认依赖可正常导入：
+
+```bash
+python -c "import torch, yaml, PyQt5"
+```
+
+2. 运行轻量单元测试：
+
+```bash
+python -m unittest tests.test_model_blocks
+```
+
+3. 至少跑通一个单模型训练：
+
+```bash
+python train.py --train_cfg configs/train/multistep.yaml --model_cfg configs/model/chebnet_gru_h3.yaml
+```
+
+4. 打开 GUI 检查数据页、模型管理页和结果页是否能正常加载：
+
+```bash
+python run_gui.py
+```
+
+5. 如果需要准备论文或答辩材料，优先查看：
+
+```text
+docs/experiment_results.md
+docs/paper_tables.md
+docs/defense_summary.md
+docs/ppt_brief.md
+docs/defense_qa.md
+```
 
 ## 常见问题
 

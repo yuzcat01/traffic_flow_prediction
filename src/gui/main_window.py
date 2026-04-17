@@ -59,18 +59,23 @@ class MainWindow(QMainWindow):
     def _build_sidebar(self):
         sidebar = QFrame()
         sidebar.setObjectName("SideBar")
-        sidebar.setFixedWidth(172)
+        sidebar.setFixedWidth(208)
 
         layout = QVBoxLayout(sidebar)
-        layout.setContentsMargins(10, 14, 10, 14)
-        layout.setSpacing(8)
+        layout.setContentsMargins(14, 18, 14, 18)
+        layout.setSpacing(10)
 
         title = QLabel("交通流量\n预测平台")
         title.setObjectName("AppTitle")
         title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
+        subtitle = QLabel("Spatio-Temporal Graph Analytics")
+        subtitle.setObjectName("SideNote")
+        subtitle.setWordWrap(True)
+
         layout.addWidget(title)
-        layout.addStretch(1)
+        layout.addWidget(subtitle)
+        layout.addSpacing(6)
 
         self.btn_group = QButtonGroup(self)
         self.btn_group.setExclusive(True)
@@ -92,22 +97,28 @@ class MainWindow(QMainWindow):
         ]
         for i, btn in enumerate(buttons):
             self.btn_group.addButton(btn, i)
-            btn.setMaximumWidth(128)
             layout.addWidget(btn)
 
         self.nav_home.setChecked(True)
         self.btn_group.buttonClicked[int].connect(self.switch_page)
 
-        layout.addStretch(2)
+        layout.addStretch(1)
+
+        footer = QLabel("在首页查看系统概览，在结果分析页查看模型表现与实验对比。")
+        footer.setObjectName("SideNote")
+        footer.setWordWrap(True)
+        layout.addWidget(footer)
         return sidebar
 
-    def _make_nav_button(self, text):
+    @staticmethod
+    def _make_nav_button(text):
         btn = QPushButton(text)
         btn.setObjectName("NavButton")
         btn.setCheckable(True)
         return btn
 
-    def _wrap_scrollable_page(self, page_widget: QWidget, min_width=1160, min_height=800):
+    @staticmethod
+    def _wrap_scrollable_page(page_widget: QWidget, min_width=1160, min_height=800):
         page_widget.setMinimumSize(min_width, min_height)
 
         area = QScrollArea()
@@ -125,11 +136,15 @@ class MainWindow(QMainWindow):
         topbar = QFrame()
         topbar.setObjectName("TopBar")
         topbar_layout = QHBoxLayout(topbar)
-        topbar_layout.setContentsMargins(14, 10, 14, 10)
+        topbar_layout.setContentsMargins(16, 12, 16, 12)
+        topbar_layout.setSpacing(12)
 
         self.label_status = QLabel("状态：就绪")
+        self.label_status.setObjectName("TopBadge")
         self.label_current_model = QLabel("当前模型：未加载")
+        self.label_current_model.setObjectName("TopMeta")
         self.label_device = QLabel("设备：auto")
+        self.label_device.setObjectName("TopMeta")
 
         topbar_layout.addWidget(self.label_status)
         topbar_layout.addStretch()
@@ -146,7 +161,7 @@ class MainWindow(QMainWindow):
         self.infer_page = InferPage()
         self.results_page = ResultsPage()
 
-        self.stack.addWidget(self._wrap_scrollable_page(self.home_page, 1160, 800))
+        self.stack.addWidget(self._wrap_scrollable_page(self.home_page, 1160, 820))
         self.stack.addWidget(self._wrap_scrollable_page(self.data_page, 1240, 900))
         self.stack.addWidget(self._wrap_scrollable_page(self.train_page, 1240, 940))
         self.stack.addWidget(self._wrap_scrollable_page(self.model_manage_page, 1240, 840))
@@ -183,7 +198,9 @@ class MainWindow(QMainWindow):
                 raise RuntimeError(f"未找到 run_config: {row.get('model_name', '')}")
 
             self.label_status.setText("状态：模型加载中...")
+
             from src.services.predictor import TrafficPredictor
+
             self.predictor = TrafficPredictor(
                 run_config_path=run_config_path,
                 checkpoint_path=ckpt_path,
@@ -191,9 +208,10 @@ class MainWindow(QMainWindow):
             )
             self.current_model_row = row
 
-            self.label_current_model.setText(
+            current_model_text = (
                 f"当前模型：{row.get('model_name', '')} | RMSE={row.get('rmse', 0.0):.4f}"
             )
+            self.label_current_model.setText(current_model_text)
 
             train_device = "auto"
             try:
@@ -203,9 +221,7 @@ class MainWindow(QMainWindow):
             self.label_device.setText(f"设备：{train_device}")
 
             self.model_manage_page.current_model_row = row
-            self.model_manage_page.label_current_model.setText(
-                f"当前模型：{row.get('model_name', '')} | RMSE={row.get('rmse', 0.0):.4f}"
-            )
+            self.model_manage_page.label_current_model.setText(current_model_text)
 
             self.infer_page.set_predictor(self.predictor, row)
             self.results_page.set_model_row(row)
@@ -218,7 +234,7 @@ class MainWindow(QMainWindow):
             msg = str(e)
             if "No module named 'torch'" in msg:
                 msg = (
-                    "当前运行环境缺少 PyTorch（torch），无法进行模型加载/推理/训练。\n"
-                    "请使用包含 torch 的环境重新打包，或安装 torch 后再运行。"
+                    "当前运行环境缺少 PyTorch（torch），无法进行模型加载、推理或训练。\n"
+                    "请切换到已安装 torch 的环境后再运行图形界面。"
                 )
             QMessageBox.critical(self, "模型加载失败", msg)

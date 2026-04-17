@@ -58,6 +58,7 @@ tmp/
 temp/
 _tmp_docx_extract/
 _tmp_pycache/
+.codex_tmp/
 
 # =========================
 # Project generated artifacts

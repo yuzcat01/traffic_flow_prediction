@@ -29,12 +29,24 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from matplotlib import rcParams
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from PIL import Image
 
+from src.gui.widgets.metric_card import MetricCard
 from src.services.model_registry import ModelRegistry
 from src.services.report_service import ExperimentReportService
+
+
+rcParams["font.sans-serif"] = [
+    "Microsoft YaHei",
+    "SimHei",
+    "Noto Sans CJK SC",
+    "Arial Unicode MS",
+    "DejaVu Sans",
+]
+rcParams["axes.unicode_minus"] = False
 
 
 class MplCanvas(FigureCanvas):
@@ -90,15 +102,78 @@ class ResultsPage(QWidget):
         panel = QFrame()
         panel.setObjectName("PagePanel")
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(16)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(18)
 
-        title = QLabel("结果分析")
-        title.setStyleSheet("font-size: 20px; font-weight: bold;")
+        hero = QFrame()
+        hero.setObjectName("HeroPanel")
+        hero_layout = QHBoxLayout(hero)
+        hero_layout.setContentsMargins(24, 22, 24, 22)
+        hero_layout.setSpacing(20)
 
-        desc = QLabel("查看当前模型摘要、分组排名对比、多模型对比，并支持一键导出实验报告。")
+        hero_left = QVBoxLayout()
+        hero_left.setSpacing(10)
+
+        eyebrow = QLabel("Analysis Workspace")
+        eyebrow.setObjectName("HeroEyebrow")
+
+        title = QLabel("实验结果分析中心")
+        title.setObjectName("HeroTitle")
+
+        desc = QLabel(
+            "这里汇总当前模型摘要、分组排名、基线汇总、多模型对比和分步长比较。"
+            "用于分析模型表现、比较实验方案，并定位不同配置下的性能差异。"
+        )
         desc.setWordWrap(True)
-        desc.setStyleSheet("color: #9ac2e8; line-height: 1.6;")
+        desc.setObjectName("HeroSubtitle")
+
+        badge_row = QHBoxLayout()
+        badge_row.setSpacing(10)
+        for text in ["当前模型摘要", "分组排名对比", "多模型横向分析"]:
+            badge = QLabel(text)
+            badge.setObjectName("HeroBadge")
+            badge.setAlignment(Qt.AlignCenter)
+            badge_row.addWidget(badge)
+        badge_row.addStretch()
+
+        hero_left.addWidget(eyebrow)
+        hero_left.addWidget(title)
+        hero_left.addWidget(desc)
+        hero_left.addLayout(badge_row)
+
+        hero_right = QFrame()
+        hero_right.setObjectName("HeroSummary")
+        hero_right.setMinimumWidth(320)
+        hero_right_layout = QVBoxLayout(hero_right)
+        hero_right_layout.setContentsMargins(18, 18, 18, 18)
+        hero_right_layout.setSpacing(8)
+
+        hero_right_title = QLabel("当前结论摘要")
+        hero_right_title.setObjectName("HeroSummaryTitle")
+
+        self.label_analysis_brief = QLabel("等待实验记录载入。")
+        self.label_analysis_brief.setObjectName("HeroSummaryText")
+        self.label_analysis_brief.setWordWrap(True)
+        self.label_analysis_brief.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+
+        hero_right_layout.addWidget(hero_right_title)
+        hero_right_layout.addWidget(self.label_analysis_brief, 1)
+
+        hero_layout.addLayout(hero_left, 3)
+        hero_layout.addWidget(hero_right, 2)
+        layout.addWidget(hero)
+
+        overview_cards = QGridLayout()
+        overview_cards.setSpacing(14)
+        self.card_total_runs = MetricCard("实验总数", "0")
+        self.card_loaded_model = MetricCard("已加载模型", "-")
+        self.card_current_rank = MetricCard("当前分组排名", "-")
+        self.card_best_group = MetricCard("当前最佳分组", "-")
+        overview_cards.addWidget(self.card_total_runs, 0, 0)
+        overview_cards.addWidget(self.card_loaded_model, 0, 1)
+        overview_cards.addWidget(self.card_current_rank, 0, 2)
+        overview_cards.addWidget(self.card_best_group, 0, 3)
+        layout.addLayout(overview_cards)
 
         top_layout = QHBoxLayout()
         top_layout.setSpacing(16)
@@ -113,7 +188,7 @@ class ResultsPage(QWidget):
         self.text_results_info.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         summary_layout.addWidget(self.text_results_info)
 
-        metric_group = QGroupBox("当前模型指标")
+        metric_group = QGroupBox("当前模型核心指标")
         metric_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         metric_layout = QGridLayout(metric_group)
         metric_layout.setHorizontalSpacing(20)
@@ -169,8 +244,8 @@ class ResultsPage(QWidget):
         self.spin_topk.setMaximumWidth(120)
 
         self.btn_refresh_compare = QPushButton("刷新分组对比")
-        self.btn_export_compare_csv = QPushButton("导出分组排名CSV")
-        self.btn_export_compare_chart = QPushButton("导出分组图PNG")
+        self.btn_export_compare_csv = QPushButton("导出分组排名 CSV")
+        self.btn_export_compare_chart = QPushButton("导出分组图表 PNG")
 
         self.btn_refresh_compare.clicked.connect(self.refresh_compare_view)
         self.btn_export_compare_csv.clicked.connect(self.export_compare_csv)
@@ -206,7 +281,7 @@ class ResultsPage(QWidget):
         self.canvas_compare = MplCanvas(self, width=8, height=4, dpi=100)
         chart_layout.addWidget(self.canvas_compare)
 
-        ranking_group = QGroupBox("分组排名文本")
+        ranking_group = QGroupBox("分组排名解读")
         ranking_layout = QVBoxLayout(ranking_group)
         self.text_ranking = QTextEdit()
         self.text_ranking.setReadOnly(True)
@@ -228,7 +303,7 @@ class ResultsPage(QWidget):
         self.spin_baseline_topk.setValue(8)
         self.spin_baseline_topk.setMaximumWidth(120)
         self.btn_refresh_baseline = QPushButton("刷新基线汇总")
-        self.btn_export_baseline = QPushButton("导出基线CSV")
+        self.btn_export_baseline = QPushButton("导出基线 CSV")
         self.btn_refresh_baseline.clicked.connect(self.refresh_baseline_summary)
         self.btn_export_baseline.clicked.connect(self.export_baseline_summary_csv)
         self.combo_baseline_metric.currentIndexChanged.connect(self.refresh_baseline_summary)
@@ -252,6 +327,7 @@ class ResultsPage(QWidget):
         self.table_baseline.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table_baseline.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table_baseline.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table_baseline.verticalHeader().setVisible(False)
         self.table_baseline.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.table_baseline.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         for idx in [2, 3, 4, 5, 6]:
@@ -285,9 +361,9 @@ class ResultsPage(QWidget):
         self.combo_model_metric.setMaximumWidth(160)
 
         self.btn_fill_pool = QPushButton("刷新候选集")
-        self.btn_select_best = QPushButton("选择Top 3")
+        self.btn_select_best = QPushButton("选择 Top 3")
         self.btn_compare_selected = QPushButton("对比已选模型")
-        self.btn_export_selected_csv = QPushButton("导出已选CSV")
+        self.btn_export_selected_csv = QPushButton("导出已选 CSV")
         self.btn_generate_report = QPushButton("生成报告包")
 
         self.btn_fill_pool.clicked.connect(self.refresh_model_pool)
@@ -317,7 +393,7 @@ class ResultsPage(QWidget):
         self.spin_horizon_index.setRange(1, 1)
         self.spin_horizon_index.setMaximumWidth(120)
         self.btn_compare_horizon = QPushButton("按步长对比")
-        self.btn_export_horizon_csv = QPushButton("导出步长CSV")
+        self.btn_export_horizon_csv = QPushButton("导出步长 CSV")
 
         self.btn_compare_horizon.clicked.connect(self.compare_selected_models_by_horizon)
         self.btn_export_horizon_csv.clicked.connect(self.export_horizon_compare_csv)
@@ -335,11 +411,12 @@ class ResultsPage(QWidget):
         self.table_models_pick = QTableWidget()
         self.table_models_pick.setColumnCount(9)
         self.table_models_pick.setHorizontalHeaderLabels([
-            "选择", "模型名", "图类型", "空间模块", "时间模块", "MAE", "MAPE", "RMSE", "时间"
+            "选择", "模型名称", "图类型", "空间模块", "时间模块", "MAE", "MAPE", "RMSE", "时间"
         ])
         self.table_models_pick.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table_models_pick.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table_models_pick.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table_models_pick.verticalHeader().setVisible(False)
         self.table_models_pick.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.table_models_pick.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         for idx in [2, 3, 4, 5, 6, 7]:
@@ -406,8 +483,6 @@ class ResultsPage(QWidget):
         fig_layout.addWidget(self.label_pred_detail_fig, 1)
         fig_layout.addWidget(self.label_loss_fig, 1)
 
-        layout.addWidget(title)
-        layout.addWidget(desc)
         layout.addLayout(top_layout)
         layout.addWidget(fig_group)
         layout.addWidget(compare_group)
@@ -422,13 +497,13 @@ class ResultsPage(QWidget):
 
     def _make_metric_title(self, text: str):
         label = QLabel(text)
-        label.setStyleSheet("color: #9ac2e8; font-size: 12px;")
+        label.setStyleSheet("color: #64748b; font-size: 12px; font-weight: 600;")
         label.setAlignment(Qt.AlignCenter)
         return label
 
     def _make_metric_value(self, text: str):
         label = QLabel(text)
-        label.setStyleSheet("font-size: 24px; font-weight: bold; color: #1e3a8a;")
+        label.setStyleSheet("font-size: 24px; font-weight: 800; color: #0f172a;")
         label.setAlignment(Qt.AlignCenter)
         return label
 
@@ -442,6 +517,67 @@ class ResultsPage(QWidget):
             return f"{float(value):.{digits}f}"
         except Exception:
             return "-"
+
+    @staticmethod
+    def _field_label(field_name: str) -> str:
+        mapping = {
+            "spatial_type": "空间模块",
+            "temporal_type": "时间模块",
+            "graph_type": "图构建方式",
+            "loss_fn": "损失函数",
+            "model_name": "模型名称",
+        }
+        return mapping.get(field_name, field_name)
+
+    @staticmethod
+    def _style_axis(ax):
+        ax.set_facecolor("#f8fafc")
+        for spine in ax.spines.values():
+            spine.set_color("#d9e2ef")
+
+    def _update_overview_cards(self, rows, full_stats=None):
+        self.card_total_runs.set_value(str(len(rows)))
+
+        if self.current_model_row is None:
+            self.card_loaded_model.set_value("-")
+            self.card_current_rank.set_value("-")
+        else:
+            self.card_loaded_model.set_value(str(self.current_model_row.get("model_name", "-")))
+            if full_stats:
+                group_key = self.combo_group_by.currentText()
+                current_group = str(self.current_model_row.get(group_key, "unknown"))
+                rank_text = "-"
+                for idx, item in enumerate(full_stats, start=1):
+                    if item["name"] == current_group:
+                        rank_text = f"{idx}/{len(full_stats)}"
+                        break
+                self.card_current_rank.set_value(rank_text)
+            else:
+                self.card_current_rank.set_value("-")
+
+        if full_stats:
+            best_item = full_stats[0]
+            self.card_best_group.set_value(str(best_item["name"]))
+        else:
+            self.card_best_group.set_value("-")
+
+        if not rows:
+            self.label_analysis_brief.setText("当前还没有实验记录，建议先完成一轮标准训练并回到本页查看结果。")
+            return
+
+        best_row = rows[0]
+        metric_key = self.combo_metric.currentText().upper()
+        group_label = self._field_label(self.combo_group_by.currentText())
+        lines = [
+            f"累计实验记录：{len(rows)} 条",
+            f"当前最佳模型：{best_row.get('model_name', '-')}",
+            f"最佳结果：RMSE {best_row.get('rmse', 0.0):.4f} / MAE {best_row.get('mae', 0.0):.4f}",
+        ]
+        if full_stats:
+            lines.append(f"当前最佳{group_label}：{full_stats[0]['name']}（{metric_key}={full_stats[0]['score']:.4f}）")
+        if self.current_model_row is not None:
+            lines.append(f"已加载模型：{self.current_model_row.get('model_name', '-')}")
+        self.label_analysis_brief.setText("\n".join(lines))
 
     def _load_run_config(self, row):
         cfg_path = str(row.get("run_config_path", "")).strip()
@@ -505,6 +641,9 @@ class ResultsPage(QWidget):
             self.label_rmse.setText("-")
             self.label_params.setText("-")
             self.text_model_struct.setPlainText("未加载模型。")
+            self.card_loaded_model.set_value("-")
+            self.card_current_rank.set_value("-")
+            self.label_analysis_brief.setText("请选择一个已训练模型，查看指标、图像和分组排名分析。")
             self._pred_fig_path = ""
             self._pred_detail_fig_path = ""
             self._loss_fig_path = ""
@@ -514,20 +653,20 @@ class ResultsPage(QWidget):
             return
 
         result_text = [
-            f"模型名: {row.get('model_name', '')}",
+            f"模型名称: {row.get('model_name', '')}",
             f"图类型: {row.get('graph_type', '')}",
             f"空间模块: {row.get('spatial_type', '')}",
             f"时间模块: {row.get('temporal_type', '')}",
             f"损失函数: {row.get('loss_fn', '-')}",
             f"多步权重模式: {row.get('horizon_weight_mode', '-')}",
-            f"多步权重Gamma: {row.get('horizon_weight_gamma', '-')}",
+            f"多步权重 Gamma: {row.get('horizon_weight_gamma', '-')}",
             f"多步权重: {row.get('horizon_weights', '-')}",
             f"历史长度: {row.get('history_length', '')}",
             f"预测步数: {row.get('predict_steps', '')}",
             f"批大小: {row.get('batch_size', '')}",
             f"学习率: {row.get('learning_rate', '')}",
             f"训练轮数: {row.get('epochs', '')}",
-            f"图像步索引: {row.get('figure_horizon_step', '')}",
+            f"展示步索引: {row.get('figure_horizon_step', '')}",
             f"分步指标路径: {row.get('horizon_metrics_path', '')}",
             f"参数量: {row.get('num_params', '')}",
             f"峰值显存(MB): {row.get('peak_gpu_mb', '')}",
@@ -562,12 +701,14 @@ class ResultsPage(QWidget):
 
         ax = self.canvas_compare.ax
         ax.clear()
+        self._style_axis(ax)
 
         if not rows:
-            ax.set_title("No experiment records")
+            ax.set_title("暂无实验记录")
             self.canvas_compare.draw()
-            self.text_ranking.setPlainText("No experiment records.")
+            self.text_ranking.setPlainText("暂无实验记录。请先运行训练任务后再查看结果分析。")
             self._last_compare_rows = []
+            self._update_overview_cards(rows, [])
             self.refresh_model_pool()
             return
 
@@ -603,25 +744,33 @@ class ResultsPage(QWidget):
         self._last_compare_agg = agg_type
 
         if not stats:
-            ax.set_title("No valid grouped comparison result")
+            ax.set_title("没有可用的分组对比结果")
             self.canvas_compare.draw()
-            self.text_ranking.setPlainText("No valid grouped comparison result.")
+            self.text_ranking.setPlainText("没有可用的分组对比结果。")
+            self._update_overview_cards(rows, [])
             self.refresh_model_pool()
             return
 
         names = [item["name"] for item in stats]
         scores = [item["score"] for item in stats]
 
-        ax.bar(range(len(names)), scores, color="#3b82f6")
+        ax.bar(range(len(names)), scores, color="#0f766e", edgecolor="#115e59", linewidth=1.0)
         ax.set_xticks(range(len(names)))
         ax.set_xticklabels(names, rotation=20, ha="right")
         ax.set_ylabel(metric_key.upper())
-        ax.set_title(f"Top-{len(stats)} by {metric_key.upper()} | group={group_key} | agg={agg_type}")
-        ax.grid(axis="y", linestyle="--", alpha=0.3)
+        ax.set_title(
+            f"Top-{len(stats)} {self._field_label(group_key)} 对比 | {metric_key.upper()} | "
+            f"{'最优值' if agg_type == 'best' else '均值'}"
+        )
+        ax.grid(axis="y", linestyle="--", alpha=0.28, color="#94a3b8")
         self.canvas_compare.figure.subplots_adjust(left=0.08, right=0.98, top=0.88, bottom=0.28)
         self.canvas_compare.draw()
 
-        lines = [f"[分组对比] metric={metric_key}, group_by={group_key}, agg={agg_type}", ""]
+        self._update_overview_cards(rows, full_stats)
+
+        group_label = self._field_label(group_key)
+        agg_label = "最优值" if agg_type == "best" else "均值"
+        lines = [f"[分组对比] 指标={metric_key.upper()}，分组字段={group_label}，聚合方式={agg_label}", ""]
 
         current_group = None
         if self.current_model_row is not None:
@@ -635,9 +784,9 @@ class ResultsPage(QWidget):
                     rank = idx
                     score = item["score"]
                     break
-            lines.append(f"当前模型分组: {current_group}")
+            lines.append(f"当前模型所属分组：{current_group}")
             if rank is not None:
-                lines.append(f"当前分组排名: {rank}/{len(full_stats)} | {metric_key.upper()}={score:.4f}")
+                lines.append(f"当前分组排名：{rank}/{len(full_stats)} | {metric_key.upper()}={score:.4f}")
             lines.append("")
 
         lines.append("[Top 排名]")
@@ -679,11 +828,12 @@ class ResultsPage(QWidget):
         self._baseline_rows = rows
         ax = self.canvas_baseline.ax
         ax.clear()
+        self._style_axis(ax)
 
         if not rows:
             self.table_baseline.setRowCount(0)
             self.text_baseline.setPlainText("未找到 baseline_summary.csv，请先运行 `python run_all.py --seeds 42,2026,3407`。")
-            ax.set_title("No baseline summary")
+            ax.set_title("暂无基线汇总")
             self.canvas_baseline.draw()
             return
 
@@ -712,16 +862,16 @@ class ResultsPage(QWidget):
         names = [str(r.get("base_model", "")) for r in show_rows]
         vals = [float(r.get(metric, 0.0)) for r in show_rows]
         x = np.arange(len(names))
-        ax.bar(x, vals, color="#6366f1")
+        ax.bar(x, vals, color="#f59e0b", edgecolor="#d97706", linewidth=1.0)
         ax.set_xticks(x)
         ax.set_xticklabels(names, rotation=18, ha="right")
         ax.set_ylabel(metric.upper())
-        ax.set_title(f"Baseline Top-{len(show_rows)} by {metric.upper()}")
-        ax.grid(axis="y", linestyle="--", alpha=0.3)
+        ax.set_title(f"基线 Top-{len(show_rows)} 对比 | {metric.upper()}")
+        ax.grid(axis="y", linestyle="--", alpha=0.28, color="#94a3b8")
         self.canvas_baseline.figure.subplots_adjust(left=0.08, right=0.98, top=0.88, bottom=0.30)
         self.canvas_baseline.draw()
 
-        lines = [f"[基线汇总] metric={metric}", ""]
+        lines = [f"[基线汇总] 指标={metric.upper()}", ""]
         for idx, row in enumerate(show_rows, start=1):
             lines.append(
                 f"{idx}. {row.get('base_model', '')} | "
@@ -816,6 +966,7 @@ class ResultsPage(QWidget):
     def _draw_horizon_curve_chart(self, rows, metric_key):
         ax = self.canvas_horizon_curve.ax
         ax.clear()
+        self._style_axis(ax)
 
         valid_count = 0
         for row in rows:
@@ -827,27 +978,27 @@ class ResultsPage(QWidget):
             ax.plot(x, values, marker="o", linewidth=2, label=str(row.get("model_name", "")))
 
         if valid_count == 0:
-            ax.set_title("No full-horizon metrics available")
-            ax.set_xlabel("Horizon Step")
+            ax.set_title("暂无完整步长指标")
+            ax.set_xlabel("预测步")
             ax.set_ylabel(metric_key.upper())
             self.canvas_horizon_curve.draw()
             return
 
-        ax.set_title(f"Full Horizon Trend | {metric_key.upper()}")
-        ax.set_xlabel("Horizon Step")
+        ax.set_title(f"全步长趋势 | {metric_key.upper()}")
+        ax.set_xlabel("预测步")
         ax.set_ylabel(metric_key.upper())
-        ax.grid(True, linestyle="--", alpha=0.3)
+        ax.grid(True, linestyle="--", alpha=0.28, color="#94a3b8")
         ax.legend(fontsize=8)
         self.canvas_horizon_curve.figure.subplots_adjust(left=0.08, right=0.98, top=0.90, bottom=0.18)
         self.canvas_horizon_curve.draw()
 
     def _build_horizon_summary_lines(self, rows, metric_key, horizon_index):
-        lines = [f"[Horizon Comparison] metric={metric_key}, horizon_step={horizon_index + 1}", ""]
+        lines = [f"[步长对比] 指标={metric_key.upper()}，预测步={horizon_index + 1}", ""]
         for idx, item in enumerate(self._last_horizon_rows, start=1):
             lines.append(f"{idx}. {item['model_name']} | {metric_key.upper()}={item['value']:.4f}")
 
         lines.append("")
-        lines.append("[Full Horizon Trend]")
+        lines.append("[全步长趋势]")
         for row in rows:
             values = self._load_horizon_series_for_row(row, metric_key)
             if values is None:
@@ -887,9 +1038,10 @@ class ResultsPage(QWidget):
         rows = self._get_selected_model_rows()
         ax = self.canvas_models.ax
         ax.clear()
+        self._style_axis(ax)
 
         if not rows:
-            ax.set_title("Please select models in table")
+            ax.set_title("请先在表格中选择模型")
             self.canvas_models.draw()
             self.text_models_summary.setPlainText("未选择模型。")
             return
@@ -899,16 +1051,16 @@ class ResultsPage(QWidget):
         values = [float(r.get(metric, 0.0)) for r in rows]
 
         x = np.arange(len(names))
-        ax.bar(x, values, color="#10b981")
+        ax.bar(x, values, color="#0f766e", edgecolor="#115e59", linewidth=1.0)
         ax.set_xticks(x)
         ax.set_xticklabels(names, rotation=18, ha="right")
         ax.set_ylabel(metric.upper())
-        ax.set_title(f"Selected Models by {metric.upper()}")
-        ax.grid(axis="y", linestyle="--", alpha=0.3)
+        ax.set_title(f"已选模型对比 | {metric.upper()}")
+        ax.grid(axis="y", linestyle="--", alpha=0.28, color="#94a3b8")
         self.canvas_models.figure.subplots_adjust(left=0.08, right=0.98, top=0.88, bottom=0.30)
         self.canvas_models.draw()
 
-        lines = [f"[已选模型对比] metric={metric}", ""]
+        lines = [f"[已选模型对比] 指标={metric.upper()}", ""]
         ranking = sorted(rows, key=lambda r: float(r.get(metric, 0.0)))
         for idx, row in enumerate(ranking, start=1):
             lines.append(
@@ -926,12 +1078,14 @@ class ResultsPage(QWidget):
 
         ax = self.canvas_horizon.ax
         ax.clear()
+        self._style_axis(ax)
 
         if not rows:
-            ax.set_title("Please select models in table")
+            ax.set_title("请先在表格中选择模型")
             self.canvas_horizon.draw()
             self.canvas_horizon_curve.ax.clear()
-            self.canvas_horizon_curve.ax.set_title("Please select models in table")
+            self._style_axis(self.canvas_horizon_curve.ax)
+            self.canvas_horizon_curve.ax.set_title("请先在表格中选择模型")
             self.canvas_horizon_curve.draw()
             self.text_horizon_summary.setPlainText("未选择模型。")
             self._last_horizon_rows = []
@@ -962,7 +1116,7 @@ class ResultsPage(QWidget):
         self._last_horizon_index = horizon_index
 
         if not self._last_horizon_rows:
-            ax.set_title("No horizon metrics file or missing horizon data")
+            ax.set_title("缺少分步长指标文件")
             self.canvas_horizon.draw()
             self.text_horizon_summary.setPlainText(
                 "没有可用的分步指标数据，请在开启 horizon metrics 后重新训练模型。"
@@ -972,12 +1126,12 @@ class ResultsPage(QWidget):
         names = [item["model_name"] for item in self._last_horizon_rows]
         values = [item["value"] for item in self._last_horizon_rows]
         x = np.arange(len(names))
-        ax.bar(x, values, color="#f59e0b")
+        ax.bar(x, values, color="#f59e0b", edgecolor="#d97706", linewidth=1.0)
         ax.set_xticks(x)
         ax.set_xticklabels(names, rotation=18, ha="right")
         ax.set_ylabel(metric_key.upper())
-        ax.set_title(f"Horizon Step {horizon_index + 1} | {metric_key.upper()} Comparison")
-        ax.grid(axis="y", linestyle="--", alpha=0.3)
+        ax.set_title(f"预测步 {horizon_index + 1} 对比 | {metric_key.upper()}")
+        ax.grid(axis="y", linestyle="--", alpha=0.28, color="#94a3b8")
         self.canvas_horizon.figure.subplots_adjust(left=0.08, right=0.98, top=0.88, bottom=0.30)
         self.canvas_horizon.draw()
 
