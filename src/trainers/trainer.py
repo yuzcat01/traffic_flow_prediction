@@ -221,6 +221,29 @@ class Trainer:
         self.train_losses = []
         self.val_losses = []
 
+    @staticmethod
+    def _raise_if_non_finite_loss(loss, stage, pred=None, target=None):
+        if torch.isfinite(loss).item():
+            return
+
+        detail_parts = [f"{stage} loss became non-finite"]
+
+        if pred is not None:
+            pred_finite = bool(torch.isfinite(pred).all().item())
+            detail_parts.append(f"pred_finite={pred_finite}")
+            if pred.numel() > 0:
+                pred_abs_max = float(torch.nan_to_num(pred.detach(), nan=0.0, posinf=0.0, neginf=0.0).abs().max().item())
+                detail_parts.append(f"pred_abs_max={pred_abs_max:.6f}")
+
+        if target is not None:
+            target_finite = bool(torch.isfinite(target).all().item())
+            detail_parts.append(f"target_finite={target_finite}")
+            if target.numel() > 0:
+                target_abs_max = float(torch.nan_to_num(target.detach(), nan=0.0, posinf=0.0, neginf=0.0).abs().max().item())
+                detail_parts.append(f"target_abs_max={target_abs_max:.6f}")
+
+        raise RuntimeError(" | ".join(detail_parts))
+
     def _move_batch_to_device(self, data):
         non_blocking = self.pin_memory
         return {
@@ -323,12 +346,13 @@ class Trainer:
         self.model.eval()
         total_loss = 0.0
 
-        with torch.no_grad():
+        with torch.inference_mode():
             for data in loader:
                 batch = self._move_batch_to_device(data)
                 pred = self.model(batch)
                 target = batch["flow_y"]
                 loss = self._compute_loss(pred, target)
+                self._raise_if_non_finite_loss(loss, stage="validation", pred=pred, target=target)
                 total_loss += loss.item()
 
         return total_loss / len(loader)
@@ -342,13 +366,14 @@ class Trainer:
         all_preds = []
         all_targets = []
 
-        with torch.no_grad():
+        with torch.inference_mode():
             for data in loader:
                 batch = self._move_batch_to_device(data)
                 pred = self.model(batch)
                 target = batch["flow_y"]
 
                 loss = self._compute_loss(pred, target)
+                self._raise_if_non_finite_loss(loss, stage="test", pred=pred, target=target)
                 total_loss += loss.item()
 
                 pred_np = pred.detach().cpu().numpy()
@@ -356,6 +381,10 @@ class Trainer:
 
                 pred_np = LoadData.recover_data(self.norm_base[0], self.norm_base[1], pred_np)
                 target_np = LoadData.recover_data(self.norm_base[0], self.norm_base[1], target_np)
+                if not np.isfinite(pred_np).all():
+                    raise RuntimeError("test prediction contains non-finite values after denormalization")
+                if not np.isfinite(target_np).all():
+                    raise RuntimeError("test target contains non-finite values after denormalization")
 
                 all_preds.append(pred_np)
                 all_targets.append(target_np)
@@ -408,38 +437,51 @@ class Trainer:
 
         best_val_loss = float("inf")
         bad_epoch_count = 0
+        total_train_start = time.perf_counter()
 
         epochs = self.cfg["train"]["epochs"]
 
         for epoch in range(epochs):
             self.model.train()
             epoch_loss = 0.0
+            epoch_start = time.perf_counter()
+            samples_seen = 0
 
             for data in self.train_loader:
-                self.optimizer.zero_grad()
+                self.optimizer.zero_grad(set_to_none=True)
 
                 batch = self._move_batch_to_device(data)
                 pred = self.model(batch)
                 target = batch["flow_y"]
 
                 loss = self._compute_loss(pred, target)
+                self._raise_if_non_finite_loss(loss, stage="train", pred=pred, target=target)
                 loss.backward()
                 if self.grad_clip_norm > 0:
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.grad_clip_norm)
                 self.optimizer.step()
 
                 epoch_loss += loss.item()
+                samples_seen += int(batch["flow_x"].size(0))
 
             train_loss = epoch_loss / len(self.train_loader)
             self.train_losses.append(train_loss)
 
             current_lr = float(self.optimizer.param_groups[0].get("lr", self.learning_rate))
-            log_msg = f"Epoch {epoch + 1:03d} | LR: {current_lr:.6f} | Train Loss: {train_loss:.6f}"
+            epoch_seconds = max(time.perf_counter() - epoch_start, 1e-8)
+            samples_per_sec = samples_seen / epoch_seconds
+            log_msg = (
+                f"Epoch {epoch + 1:03d} | LR: {current_lr:.6f} | "
+                f"Train Loss: {train_loss:.6f} | Time: {epoch_seconds:.2f}s | "
+                f"Samples/s: {samples_per_sec:.1f}"
+            )
 
             if self.val_loader is not None:
+                val_start = time.perf_counter()
                 val_loss = self._evaluate_loss_only(self.val_loader)
+                val_seconds = time.perf_counter() - val_start
                 self.val_losses.append(val_loss)
-                log_msg += f" | Val Loss: {val_loss:.6f}"
+                log_msg += f" | Val Loss: {val_loss:.6f} | Val Time: {val_seconds:.2f}s"
 
                 if val_loss < best_val_loss - self.early_stop_min_delta:
                     best_val_loss = val_loss
@@ -464,6 +506,7 @@ class Trainer:
 
         torch.save(self.model.state_dict(), self.last_ckpt_path)
         print(f"last model saved to {self.last_ckpt_path}")
+        print(f"training finished in {time.perf_counter() - total_train_start:.2f}s")
 
         plot_loss_curve(
             train_losses=self.train_losses,
@@ -495,7 +538,10 @@ class Trainer:
         if self.device.type == "cuda":
             torch.cuda.reset_peak_memory_stats(self.device)
 
+        test_start = time.perf_counter()
         test_result = self._evaluate_with_metrics(self.test_loader)
+        test_seconds = max(time.perf_counter() - test_start, 1e-8)
+        test_samples = int(test_result["preds"].shape[0])
 
         print(f"Test Loss: {test_result['loss']:.6f}")
         print(
@@ -504,6 +550,7 @@ class Trainer:
             f"MAPE: {test_result['mape'] * 100:.4f}% | "
             f"RMSE: {test_result['rmse']:.4f}"
         )
+        print(f"Test Time: {test_seconds:.2f}s | Samples/s: {test_samples / test_seconds:.1f}")
 
         node_id = self.cfg["train"]["figure_node_id"]
         figure_points = self.cfg["train"]["figure_points"]
