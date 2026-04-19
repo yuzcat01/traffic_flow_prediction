@@ -20,7 +20,7 @@
 ### 2.2 模型训练与评测
 
 - 支持 `GCN`、`ChebNet`、`GAT` 三类空间建模模块。
-- 支持统一时间模块框架，当前已支持 `GRU` 和 `none`。
+- 支持统一时间模块框架，当前已支持 `GRU`、`TCN` 和 `none`。
 - 支持多种建图方式，包括 `connect`、`distance`、`correlation`、`distance_correlation`。
 - 支持单步与多步预测。
 - 支持训练、验证、测试流程。

@@ -3,6 +3,7 @@ from src.models.spatial.chebnet import ChebNetSpatial
 from src.models.spatial.gat import GATSpatial
 from src.models.temporal.gru import GRUTemporal
 from src.models.temporal.identity import IdentityTemporal
+from src.models.temporal.tcn import TCNTemporal
 from src.models.st_model import STModel
 
 
@@ -46,6 +47,14 @@ def build_temporal_encoder(model_cfg):
             input_dim=spatial_hidden,
             hidden_dim=temporal_cfg["hidden_dim"],
             num_layers=int(temporal_cfg.get("num_layers", 1)),
+            dropout=dropout,
+        )
+    elif temporal_type == "tcn":
+        return TCNTemporal(
+            input_dim=spatial_hidden,
+            hidden_dim=temporal_cfg["hidden_dim"],
+            num_layers=int(temporal_cfg.get("num_layers", 2)),
+            kernel_size=int(temporal_cfg.get("kernel_size", 3)),
             dropout=dropout,
         )
     elif temporal_type == "none":

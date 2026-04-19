@@ -367,11 +367,10 @@ def get_flow_data(
     if not os.path.exists(flow_file):
         raise FileNotFoundError(f"flow_file not found: {flow_file}")
 
-    data = np.load(flow_file)
-    if "data" not in data:
-        raise KeyError(f"'data' key not found in {flow_file}")
-
-    flow_data = data["data"]  # [T, N, D]
+    with np.load(flow_file) as data:
+        if "data" not in data:
+            raise KeyError(f"'data' key not found in {flow_file}")
+        flow_data = data["data"]  # [T, N, D]
     flow_data = flow_data.transpose([1, 0, 2])[:, :, 0][:, :, np.newaxis]  # [N, T, 1]
     flow_data = flow_data.astype(np.float32)
 

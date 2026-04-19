@@ -80,6 +80,10 @@ class ResultsPage(QWidget):
         self._last_horizon_metric = ""
         self._last_horizon_index = 0
         self._baseline_rows = []
+        self._last_resource_rows = []
+        self._last_resource_metric = ""
+        self._last_resource_cost = ""
+        self._updating_model_pick_table = False
 
         self._init_ui()
         self.refresh_compare_view()
@@ -347,6 +351,72 @@ class ResultsPage(QWidget):
         baseline_layout.addWidget(self.table_baseline)
         baseline_layout.addLayout(baseline_vis)
 
+        resource_group = QGroupBox("资源成本 vs 精度")
+        resource_layout = QVBoxLayout(resource_group)
+
+        resource_control = QHBoxLayout()
+        self.combo_resource_metric = QComboBox()
+        self.combo_resource_metric.addItems(["rmse", "mae", "mape"])
+        self.combo_resource_metric.setMaximumWidth(160)
+
+        self.combo_resource_cost = QComboBox()
+        self.combo_resource_cost.addItems(["num_params", "peak_gpu_mb"])
+        self.combo_resource_cost.setMaximumWidth(180)
+
+        self.spin_resource_topk = QSpinBox()
+        self.spin_resource_topk.setRange(5, 100)
+        self.spin_resource_topk.setValue(20)
+        self.spin_resource_topk.setMaximumWidth(120)
+
+        self.btn_refresh_resource = QPushButton("刷新资源分析")
+        self.btn_export_resource_csv = QPushButton("导出资源 CSV")
+        self.btn_export_resource_chart = QPushButton("导出资源图 PNG")
+
+        self.btn_refresh_resource.clicked.connect(self.refresh_resource_analysis)
+        self.btn_export_resource_csv.clicked.connect(self.export_resource_analysis_csv)
+        self.btn_export_resource_chart.clicked.connect(self.export_resource_analysis_chart)
+        self.combo_resource_metric.currentIndexChanged.connect(self.refresh_resource_analysis)
+        self.combo_resource_cost.currentIndexChanged.connect(self.refresh_resource_analysis)
+        self.spin_resource_topk.valueChanged.connect(self.refresh_resource_analysis)
+
+        resource_control.addWidget(QLabel("精度指标:"))
+        resource_control.addWidget(self.combo_resource_metric)
+        resource_control.addSpacing(10)
+        resource_control.addWidget(QLabel("成本指标:"))
+        resource_control.addWidget(self.combo_resource_cost)
+        resource_control.addSpacing(10)
+        resource_control.addWidget(QLabel("候选数:"))
+        resource_control.addWidget(self.spin_resource_topk)
+        resource_control.addSpacing(10)
+        resource_control.addWidget(self.btn_refresh_resource)
+        resource_control.addWidget(self.btn_export_resource_csv)
+        resource_control.addWidget(self.btn_export_resource_chart)
+        resource_control.addStretch()
+
+        resource_cards = QGridLayout()
+        resource_cards.setSpacing(12)
+        self.card_resource_best = MetricCard("效率最优", "-")
+        self.card_resource_front = MetricCard("Pareto 模型数", "0")
+        self.card_resource_cost = MetricCard("当前模型成本", "-")
+        self.card_resource_metric = MetricCard("当前模型精度", "-")
+        resource_cards.addWidget(self.card_resource_best, 0, 0)
+        resource_cards.addWidget(self.card_resource_front, 0, 1)
+        resource_cards.addWidget(self.card_resource_cost, 0, 2)
+        resource_cards.addWidget(self.card_resource_metric, 0, 3)
+
+        resource_vis = QHBoxLayout()
+        resource_vis.setSpacing(16)
+        self.canvas_resource = MplCanvas(self, width=8, height=3.8, dpi=100)
+        self.text_resource = QTextEdit()
+        self.text_resource.setReadOnly(True)
+        self.text_resource.setMinimumHeight(260)
+        resource_vis.addWidget(self.canvas_resource, 3)
+        resource_vis.addWidget(self.text_resource, 2)
+
+        resource_layout.addLayout(resource_control)
+        resource_layout.addLayout(resource_cards)
+        resource_layout.addLayout(resource_vis)
+
         model_compare_group = QGroupBox("多模型对比")
         model_compare_layout = QVBoxLayout(model_compare_group)
 
@@ -371,6 +441,8 @@ class ResultsPage(QWidget):
         self.btn_compare_selected.clicked.connect(self.compare_selected_models)
         self.btn_export_selected_csv.clicked.connect(self.export_selected_models_csv)
         self.btn_generate_report.clicked.connect(self.generate_report_bundle)
+        self.spin_model_pool.valueChanged.connect(self.refresh_model_pool)
+        self.combo_model_metric.currentIndexChanged.connect(self.compare_selected_models)
 
         model_control.addWidget(QLabel("候选数量:"))
         model_control.addWidget(self.spin_model_pool)
@@ -397,6 +469,8 @@ class ResultsPage(QWidget):
 
         self.btn_compare_horizon.clicked.connect(self.compare_selected_models_by_horizon)
         self.btn_export_horizon_csv.clicked.connect(self.export_horizon_compare_csv)
+        self.combo_horizon_metric.currentIndexChanged.connect(self.compare_selected_models_by_horizon)
+        self.spin_horizon_index.valueChanged.connect(self.compare_selected_models_by_horizon)
 
         horizon_control.addWidget(QLabel("步长指标:"))
         horizon_control.addWidget(self.combo_horizon_metric)
@@ -423,6 +497,18 @@ class ResultsPage(QWidget):
             self.table_models_pick.horizontalHeader().setSectionResizeMode(idx, QHeaderView.ResizeToContents)
         self.table_models_pick.horizontalHeader().setSectionResizeMode(8, QHeaderView.Stretch)
         self.table_models_pick.setMinimumHeight(220)
+        self.table_models_pick.itemChanged.connect(self._on_model_pick_item_changed)
+
+        selected_cards = QGridLayout()
+        selected_cards.setSpacing(12)
+        self.card_selected_count = MetricCard("已选模型数", "0")
+        self.card_selected_best = MetricCard("当前最优模型", "-")
+        self.card_selected_gap = MetricCard("最优/最差差值", "-")
+        self.card_horizon_focus = MetricCard("当前步长焦点", "-")
+        selected_cards.addWidget(self.card_selected_count, 0, 0)
+        selected_cards.addWidget(self.card_selected_best, 0, 1)
+        selected_cards.addWidget(self.card_selected_gap, 0, 2)
+        selected_cards.addWidget(self.card_horizon_focus, 0, 3)
 
         model_chart_layout = QHBoxLayout()
         self.canvas_models = MplCanvas(self, width=8, height=4, dpi=100)
@@ -451,11 +537,39 @@ class ResultsPage(QWidget):
         horizon_chart_layout.addLayout(horizon_canvas_layout, 3)
         horizon_chart_layout.addWidget(self.text_horizon_summary, 2)
 
+        deep_analysis_layout = QHBoxLayout()
+        deep_analysis_layout.setSpacing(16)
+
+        self.canvas_metric_heatmap = MplCanvas(self, width=8, height=3.5, dpi=100)
+        self.canvas_metric_heatmap.setMinimumHeight(260)
+        metric_heatmap_group = QGroupBox("模型误差热力图")
+        metric_heatmap_layout = QVBoxLayout(metric_heatmap_group)
+        metric_heatmap_layout.addWidget(self.canvas_metric_heatmap)
+
+        self.canvas_horizon_matrix = MplCanvas(self, width=8, height=3.5, dpi=100)
+        self.canvas_horizon_matrix.setMinimumHeight(260)
+        horizon_matrix_group = QGroupBox("分预测步误差矩阵")
+        horizon_matrix_layout = QVBoxLayout(horizon_matrix_group)
+        horizon_matrix_layout.addWidget(self.canvas_horizon_matrix)
+
+        report_group = QGroupBox("报告视图")
+        report_layout = QVBoxLayout(report_group)
+        self.text_report_view = QTextEdit()
+        self.text_report_view.setReadOnly(True)
+        self.text_report_view.setMinimumHeight(260)
+        report_layout.addWidget(self.text_report_view)
+
+        deep_analysis_layout.addWidget(metric_heatmap_group, 2)
+        deep_analysis_layout.addWidget(horizon_matrix_group, 2)
+        deep_analysis_layout.addWidget(report_group, 2)
+
         model_compare_layout.addLayout(model_control)
         model_compare_layout.addLayout(horizon_control)
         model_compare_layout.addWidget(self.table_models_pick)
+        model_compare_layout.addLayout(selected_cards)
         model_compare_layout.addLayout(model_chart_layout)
         model_compare_layout.addLayout(horizon_chart_layout)
+        model_compare_layout.addLayout(deep_analysis_layout)
 
         fig_group = QGroupBox("当前模型图像")
         fig_layout = QHBoxLayout(fig_group)
@@ -488,6 +602,7 @@ class ResultsPage(QWidget):
         layout.addWidget(compare_group)
         layout.addLayout(compare_vis_layout)
         layout.addWidget(baseline_group)
+        layout.addWidget(resource_group)
         layout.addWidget(model_compare_group)
         layout.addStretch(1)
 
@@ -510,6 +625,12 @@ class ResultsPage(QWidget):
     def set_model_row(self, row):
         self.current_model_row = row
         self.update_view()
+
+    def _on_model_pick_item_changed(self, item):
+        if self._updating_model_pick_table:
+            return
+        if item.column() == 0:
+            self.compare_selected_models()
 
     @staticmethod
     def _safe_float_text(value, digits=4):
@@ -650,6 +771,7 @@ class ResultsPage(QWidget):
             self._set_image_to_label(self.label_pred_fig, "")
             self._set_image_to_label(self.label_pred_detail_fig, "")
             self._set_image_to_label(self.label_loss_fig, "")
+            self._clear_compare_analysis("请选择一个已训练模型后，再生成可截图的分析摘要。")
             return
 
         result_text = [
@@ -694,6 +816,7 @@ class ResultsPage(QWidget):
         self._set_image_to_label(self.label_loss_fig, self._loss_fig_path)
 
         self.refresh_compare_view()
+        self._update_report_view(self._get_selected_model_rows())
 
     def refresh_compare_view(self):
         rows = self.registry.list_models(sort_by="rmse")
@@ -710,6 +833,8 @@ class ResultsPage(QWidget):
             self._last_compare_rows = []
             self._update_overview_cards(rows, [])
             self.refresh_model_pool()
+            self.refresh_resource_analysis()
+            self._clear_compare_analysis("暂无实验记录，报告视图会在产生训练结果后自动汇总。")
             return
 
         metric_key = self.combo_metric.currentText()
@@ -749,6 +874,7 @@ class ResultsPage(QWidget):
             self.text_ranking.setPlainText("没有可用的分组对比结果。")
             self._update_overview_cards(rows, [])
             self.refresh_model_pool()
+            self._clear_compare_analysis("当前没有可用的分组统计结果。")
             return
 
         names = [item["name"] for item in stats]
@@ -796,6 +922,8 @@ class ResultsPage(QWidget):
         self.text_ranking.setPlainText("\n".join(lines))
         self.refresh_model_pool()
         self.refresh_baseline_summary()
+        self.refresh_resource_analysis()
+        self._update_report_view(self._get_selected_model_rows())
 
     @staticmethod
     def _fmt_mean_std(mean_v, std_v):
@@ -835,6 +963,7 @@ class ResultsPage(QWidget):
             self.text_baseline.setPlainText("未找到 baseline_summary.csv，请先运行 `python run_all.py --seeds 42,2026,3407`。")
             ax.set_title("暂无基线汇总")
             self.canvas_baseline.draw()
+            self._update_report_view(self._get_selected_model_rows())
             return
 
         metric = self.combo_baseline_metric.currentText().strip()
@@ -880,17 +1009,281 @@ class ResultsPage(QWidget):
                 f"MAPE={self._fmt_mean_std(row.get('mape_mean'), row.get('mape_std'))}"
             )
         self.text_baseline.setPlainText("\n".join(lines))
+        self._update_report_view(self._get_selected_model_rows())
+
+    @staticmethod
+    def _resource_label(field_name: str) -> str:
+        mapping = {
+            "num_params": "参数量",
+            "peak_gpu_mb": "峰值显存(MB)",
+            "rmse": "RMSE",
+            "mae": "MAE",
+            "mape": "MAPE",
+        }
+        return mapping.get(field_name, field_name)
+
+    @staticmethod
+    def _safe_metric_value(row, key: str):
+        try:
+            value = float(row.get(key, np.nan))
+        except Exception:
+            return np.nan
+        if not np.isfinite(value):
+            return np.nan
+        return value
+
+    @staticmethod
+    def _compute_pareto_front(rows, cost_key: str, metric_key: str):
+        front = []
+        for candidate in rows:
+            cand_cost = ResultsPage._safe_metric_value(candidate, cost_key)
+            cand_metric = ResultsPage._safe_metric_value(candidate, metric_key)
+            if np.isnan(cand_cost) or np.isnan(cand_metric):
+                continue
+
+            dominated = False
+            for other in rows:
+                if other is candidate:
+                    continue
+                other_cost = ResultsPage._safe_metric_value(other, cost_key)
+                other_metric = ResultsPage._safe_metric_value(other, metric_key)
+                if np.isnan(other_cost) or np.isnan(other_metric):
+                    continue
+                if (
+                    other_cost <= cand_cost
+                    and other_metric <= cand_metric
+                    and (other_cost < cand_cost or other_metric < cand_metric)
+                ):
+                    dominated = True
+                    break
+
+            if not dominated:
+                front.append(candidate)
+
+        front.sort(
+            key=lambda row: (
+                ResultsPage._safe_metric_value(row, metric_key),
+                ResultsPage._safe_metric_value(row, cost_key),
+            )
+        )
+        return front
+
+    def refresh_resource_analysis(self):
+        rows = self._all_rows if self._all_rows else self.registry.list_models(sort_by="rmse")
+        self._all_rows = rows
+
+        metric_key = self.combo_resource_metric.currentText().strip()
+        cost_key = self.combo_resource_cost.currentText().strip()
+        topk = self.spin_resource_topk.value()
+
+        ax = self.canvas_resource.ax
+        ax.clear()
+        self._style_axis(ax)
+
+        if not rows:
+            self._last_resource_rows = []
+            self._last_resource_metric = metric_key
+            self._last_resource_cost = cost_key
+            self.card_resource_best.set_value("-")
+            self.card_resource_front.set_value("0")
+            self.card_resource_cost.set_value("-")
+            self.card_resource_metric.set_value("-")
+            ax.set_title("暂无资源分析数据")
+            self.canvas_resource.draw()
+            self.text_resource.setPlainText("暂无实验记录，无法生成资源成本 vs 精度分析。")
+            self._update_report_view(self._get_selected_model_rows())
+            return
+
+        candidates = []
+        for row in rows:
+            cost_value = self._safe_metric_value(row, cost_key)
+            metric_value = self._safe_metric_value(row, metric_key)
+            if np.isnan(cost_value) or np.isnan(metric_value):
+                continue
+            enriched = dict(row)
+            enriched["_resource_cost"] = cost_value
+            enriched["_resource_metric"] = metric_value
+            candidates.append(enriched)
+
+        candidates.sort(key=lambda row: (row["_resource_metric"], row["_resource_cost"]))
+        candidates = candidates[:topk]
+
+        self._last_resource_rows = candidates
+        self._last_resource_metric = metric_key
+        self._last_resource_cost = cost_key
+
+        if not candidates:
+            self.card_resource_best.set_value("-")
+            self.card_resource_front.set_value("0")
+            self.card_resource_cost.set_value("-")
+            self.card_resource_metric.set_value("-")
+            ax.set_title("缺少可用资源字段")
+            self.canvas_resource.draw()
+            self.text_resource.setPlainText(
+                f"当前记录中缺少 {self._resource_label(cost_key)} 或 {self._resource_label(metric_key)}，无法生成对比图。"
+            )
+            self._update_report_view(self._get_selected_model_rows())
+            return
+
+        pareto_rows = self._compute_pareto_front(candidates, cost_key=cost_key, metric_key=metric_key)
+        pareto_names = {str(row.get("model_name", "")) for row in pareto_rows}
+
+        front_points = sorted(
+            [
+                (row["_resource_cost"], row["_resource_metric"], str(row.get("model_name", "")))
+                for row in pareto_rows
+            ],
+            key=lambda item: (item[0], item[1]),
+        )
+
+        normal_x = [row["_resource_cost"] for row in candidates if str(row.get("model_name", "")) not in pareto_names]
+        normal_y = [row["_resource_metric"] for row in candidates if str(row.get("model_name", "")) not in pareto_names]
+        front_x = [item[0] for item in front_points]
+        front_y = [item[1] for item in front_points]
+
+        if normal_x:
+            ax.scatter(
+                normal_x,
+                normal_y,
+                s=70,
+                color="#94a3b8",
+                edgecolors="#475569",
+                linewidths=0.8,
+                alpha=0.85,
+                label="候选模型",
+            )
+
+        ax.scatter(
+            front_x,
+            front_y,
+            s=110,
+            color="#f59e0b",
+            edgecolors="#b45309",
+            linewidths=1.0,
+            alpha=0.95,
+            label="Pareto 前沿",
+            zorder=3,
+        )
+
+        if len(front_x) >= 2:
+            ax.plot(front_x, front_y, color="#f59e0b", linewidth=1.8, alpha=0.9, zorder=2)
+
+        current_name = ""
+        if self.current_model_row is not None:
+            current_name = str(self.current_model_row.get("model_name", ""))
+            for row in candidates:
+                if str(row.get("model_name", "")) == current_name:
+                    ax.scatter(
+                        [row["_resource_cost"]],
+                        [row["_resource_metric"]],
+                        s=180,
+                        color="#2563eb",
+                        edgecolors="#1d4ed8",
+                        linewidths=1.2,
+                        marker="*",
+                        label="当前模型",
+                        zorder=4,
+                    )
+                    break
+
+        label_rows = []
+        label_rows.extend(pareto_rows[: min(5, len(pareto_rows))])
+        if current_name:
+            for row in candidates:
+                if str(row.get("model_name", "")) == current_name and row not in label_rows:
+                    label_rows.append(row)
+                    break
+
+        for row in label_rows:
+            ax.annotate(
+                str(row.get("model_name", "")),
+                (row["_resource_cost"], row["_resource_metric"]),
+                textcoords="offset points",
+                xytext=(6, 6),
+                fontsize=8,
+                color="#0f172a",
+            )
+
+        ax.set_xlabel(self._resource_label(cost_key))
+        ax.set_ylabel(self._resource_label(metric_key))
+        ax.set_title(f"资源成本 vs 精度 | {self._resource_label(cost_key)} vs {self._resource_label(metric_key)}")
+        ax.grid(True, linestyle="--", alpha=0.28, color="#94a3b8")
+        ax.legend(fontsize=8)
+        self.canvas_resource.figure.subplots_adjust(left=0.10, right=0.98, top=0.90, bottom=0.18)
+        self.canvas_resource.draw()
+
+        best_row = min(
+            candidates,
+            key=lambda row: (row["_resource_metric"], row["_resource_cost"]),
+        )
+        self.card_resource_best.set_value(str(best_row.get("model_name", "-")))
+        self.card_resource_front.set_value(str(len(pareto_rows)))
+
+        if current_name:
+            current_row = next((row for row in candidates if str(row.get("model_name", "")) == current_name), None)
+            if current_row is not None:
+                self.card_resource_cost.set_value(f"{current_row['_resource_cost']:.2f}")
+                self.card_resource_metric.set_value(f"{current_row['_resource_metric']:.4f}")
+            else:
+                self.card_resource_cost.set_value("-")
+                self.card_resource_metric.set_value("-")
+        else:
+            self.card_resource_cost.set_value("-")
+            self.card_resource_metric.set_value("-")
+
+        lines = [
+            f"[资源成本 vs 精度] 精度指标={self._resource_label(metric_key)}，成本指标={self._resource_label(cost_key)}",
+            "",
+            f"候选模型数：{len(candidates)}",
+            f"Pareto 前沿模型数：{len(pareto_rows)}",
+            f"效率最优模型：{best_row.get('model_name', '')} | "
+            f"{self._resource_label(metric_key)}={best_row['_resource_metric']:.4f} | "
+            f"{self._resource_label(cost_key)}={best_row['_resource_cost']:.2f}",
+            "",
+            "[Pareto 前沿]",
+        ]
+
+        for idx, row in enumerate(pareto_rows, start=1):
+            lines.append(
+                f"{idx}. {row.get('model_name', '')} | "
+                f"{self._resource_label(metric_key)}={row['_resource_metric']:.4f} | "
+                f"{self._resource_label(cost_key)}={row['_resource_cost']:.2f}"
+            )
+
+        if current_name:
+            current_row = next((row for row in candidates if str(row.get("model_name", "")) == current_name), None)
+            lines.extend(["", f"[当前模型] {current_name}"])
+            if current_row is not None:
+                on_front = "是" if current_name in pareto_names else "否"
+                lines.append(
+                    f"{self._resource_label(metric_key)}={current_row['_resource_metric']:.4f} | "
+                    f"{self._resource_label(cost_key)}={current_row['_resource_cost']:.2f} | "
+                    f"是否位于 Pareto 前沿：{on_front}"
+                )
+            else:
+                lines.append("当前模型缺少完整资源字段，未参与本轮资源分析。")
+
+        self.text_resource.setPlainText("\n".join(lines))
+        self._update_report_view(self._get_selected_model_rows())
 
     def refresh_model_pool(self):
         rows = self._all_rows
         pool = min(self.spin_model_pool.value(), len(rows))
         rows = rows[:pool]
 
+        previous_selected = {
+            str(row.get("model_name", ""))
+            for row in self._get_selected_model_rows()
+        }
+
+        self._updating_model_pick_table = True
         self.table_models_pick.setRowCount(len(rows))
         for r, row in enumerate(rows):
             check_item = QTableWidgetItem("")
             check_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-            check_item.setCheckState(Qt.Unchecked)
+            check_item.setCheckState(
+                Qt.Checked if str(row.get("model_name", "")) in previous_selected else Qt.Unchecked
+            )
             self.table_models_pick.setItem(r, 0, check_item)
 
             vals = [
@@ -908,7 +1301,9 @@ class ResultsPage(QWidget):
                 item.setToolTip(str(v))
                 self.table_models_pick.setItem(r, c, item)
 
+        self._updating_model_pick_table = False
         self._update_horizon_index_range(rows)
+        self.compare_selected_models()
 
     def _update_horizon_index_range(self, rows):
         max_steps = 1
@@ -1015,6 +1410,207 @@ class ResultsPage(QWidget):
             )
         return lines
 
+    def _clear_compare_analysis(self, message: str):
+        self.card_selected_count.set_value("0")
+        self.card_selected_best.set_value("-")
+        self.card_selected_gap.set_value("-")
+        self.card_horizon_focus.set_value("-")
+
+        for canvas, title in [
+            (self.canvas_metric_heatmap, "暂无模型误差热力图"),
+            (self.canvas_horizon_matrix, "暂无分预测步误差矩阵"),
+        ]:
+            canvas.figure.clear()
+            canvas.ax = canvas.figure.add_subplot(111)
+            self._style_axis(canvas.ax)
+            canvas.ax.set_title(title)
+            canvas.draw()
+
+        self.text_report_view.setPlainText(message)
+
+    def _update_selected_compare_cards(self, rows, metric_key: str):
+        self.card_selected_count.set_value(str(len(rows)))
+        if not rows:
+            self.card_selected_best.set_value("-")
+            self.card_selected_gap.set_value("-")
+            self.card_horizon_focus.set_value("-")
+            return
+
+        ranked = sorted(rows, key=lambda r: float(r.get(metric_key, float("inf"))))
+        best_row = ranked[0]
+        worst_row = ranked[-1]
+        gap = float(worst_row.get(metric_key, 0.0)) - float(best_row.get(metric_key, 0.0))
+
+        self.card_selected_best.set_value(str(best_row.get("model_name", "-")))
+        self.card_selected_gap.set_value(f"{gap:.4f}")
+        self.card_horizon_focus.set_value(
+            f"H{self.spin_horizon_index.value()} / {self.combo_horizon_metric.currentText().upper()}"
+        )
+
+    def _draw_metric_heatmap(self, rows):
+        self.canvas_metric_heatmap.figure.clear()
+        ax = self.canvas_metric_heatmap.figure.add_subplot(111)
+        self.canvas_metric_heatmap.ax = ax
+        self._style_axis(ax)
+
+        if not rows:
+            ax.set_title("暂无模型误差热力图")
+            self.canvas_metric_heatmap.draw()
+            return
+
+        metric_keys = ["mae", "mape", "rmse"]
+        data = np.array(
+            [
+                [float(row.get(metric_key, np.nan)) for metric_key in metric_keys]
+                for row in rows
+            ],
+            dtype=float,
+        )
+
+        image = ax.imshow(data, aspect="auto", cmap="YlOrRd")
+        ax.set_yticks(np.arange(len(rows)))
+        ax.set_yticklabels([str(row.get("model_name", "")) for row in rows])
+        ax.set_xticks(np.arange(len(metric_keys)))
+        ax.set_xticklabels([metric.upper() for metric in metric_keys])
+        ax.set_title("Selected Models Error Heatmap")
+
+        for row_idx in range(data.shape[0]):
+            for col_idx in range(data.shape[1]):
+                value = data[row_idx, col_idx]
+                if np.isnan(value):
+                    continue
+                ax.text(col_idx, row_idx, f"{value:.3f}", ha="center", va="center", color="#111827", fontsize=8)
+
+        self.canvas_metric_heatmap.figure.colorbar(image, ax=ax, fraction=0.046, pad=0.04)
+        self.canvas_metric_heatmap.figure.tight_layout()
+        self.canvas_metric_heatmap.draw()
+
+    def _draw_horizon_metric_matrix(self, rows, metric_key: str):
+        self.canvas_horizon_matrix.figure.clear()
+        ax = self.canvas_horizon_matrix.figure.add_subplot(111)
+        self.canvas_horizon_matrix.ax = ax
+        self._style_axis(ax)
+
+        series = []
+        labels = []
+        max_len = 0
+        for row in rows:
+            values = self._load_horizon_series_for_row(row, metric_key)
+            if values is None:
+                continue
+            values = np.asarray(values, dtype=float)
+            series.append(values)
+            labels.append(str(row.get("model_name", "")))
+            max_len = max(max_len, len(values))
+
+        if not series:
+            ax.set_title("暂无分预测步误差矩阵")
+            self.canvas_horizon_matrix.draw()
+            return
+
+        matrix = np.full((len(series), max_len), np.nan, dtype=float)
+        for idx, values in enumerate(series):
+            matrix[idx, : len(values)] = values
+
+        image = ax.imshow(matrix, aspect="auto", cmap="Blues")
+        ax.set_yticks(np.arange(len(labels)))
+        ax.set_yticklabels(labels)
+        ax.set_xticks(np.arange(max_len))
+        ax.set_xticklabels([f"H{i + 1}" for i in range(max_len)])
+        ax.set_title(f"Horizon Error Matrix | {metric_key.upper()}")
+
+        for row_idx in range(matrix.shape[0]):
+            for col_idx in range(matrix.shape[1]):
+                value = matrix[row_idx, col_idx]
+                if np.isnan(value):
+                    continue
+                ax.text(col_idx, row_idx, f"{value:.3f}", ha="center", va="center", color="#0f172a", fontsize=7)
+
+        self.canvas_horizon_matrix.figure.colorbar(image, ax=ax, fraction=0.046, pad=0.04)
+        self.canvas_horizon_matrix.figure.tight_layout()
+        self.canvas_horizon_matrix.draw()
+
+    def _update_report_view(self, selected_rows):
+        if not hasattr(self, "text_report_view"):
+            return
+
+        lines = ["[截图友好报告视图]", ""]
+
+        if self.current_model_row is not None:
+            lines.extend(
+                [
+                    f"当前模型: {self.current_model_row.get('model_name', '-')}",
+                    f"当前指标: RMSE={float(self.current_model_row.get('rmse', 0.0)):.4f} | "
+                    f"MAE={float(self.current_model_row.get('mae', 0.0)):.4f} | "
+                    f"MAPE={float(self.current_model_row.get('mape', 0.0)):.4f}",
+                    "",
+                ]
+            )
+        else:
+            lines.extend(["当前模型: -", "当前指标: -", ""])
+
+        if self._last_compare_rows:
+            best_group = self._last_compare_rows[0]
+            lines.append(
+                f"分组结论: {self._field_label(self._last_compare_group)} = {best_group['name']} "
+                f"在 {self._last_compare_metric.upper()} 上最优 ({best_group['score']:.4f})"
+            )
+        else:
+            lines.append("分组结论: 暂无")
+
+        if self._baseline_rows:
+            baseline_sorted = sorted(self._baseline_rows, key=lambda x: float(x.get("rmse_mean", float("inf"))))
+            baseline_best = baseline_sorted[0]
+            lines.append(
+                f"基线结论: {baseline_best.get('base_model', '-')} 的 RMSE 均值最优 "
+                f"({float(baseline_best.get('rmse_mean', 0.0)):.4f})"
+            )
+        else:
+            lines.append("基线结论: 暂无")
+
+        if self._last_resource_rows:
+            best_resource = min(
+                self._last_resource_rows,
+                key=lambda row: (row["_resource_metric"], row["_resource_cost"]),
+            )
+            lines.append(
+                f"资源结论: {best_resource.get('model_name', '-')} 在 "
+                f"{self._resource_label(self._last_resource_cost)} / {self._resource_label(self._last_resource_metric)} "
+                f"组合上最优"
+            )
+            lines.append(
+                f"资源明细: {self._resource_label(self._last_resource_metric)}={best_resource['_resource_metric']:.4f} | "
+                f"{self._resource_label(self._last_resource_cost)}={best_resource['_resource_cost']:.2f}"
+            )
+        else:
+            lines.append("资源结论: 暂无")
+
+        lines.append("")
+        lines.append("已选模型摘要:")
+        if selected_rows:
+            ranked = sorted(selected_rows, key=lambda r: float(r.get(self.combo_model_metric.currentText(), float("inf"))))
+            for idx, row in enumerate(ranked, start=1):
+                lines.append(
+                    f"{idx}. {row.get('model_name', '')} | "
+                    f"RMSE={float(row.get('rmse', 0.0)):.4f} | "
+                    f"MAE={float(row.get('mae', 0.0)):.4f} | "
+                    f"MAPE={float(row.get('mape', 0.0)):.4f}"
+                )
+        else:
+            lines.append("未选择模型。")
+
+        if self._last_horizon_rows:
+            best_h = self._last_horizon_rows[0]
+            lines.extend(
+                [
+                    "",
+                    f"当前步长焦点: H{best_h.get('horizon_step', 1)} / {best_h.get('metric', '').upper()}",
+                    f"当前步长最优模型: {best_h.get('model_name', '-')} ({float(best_h.get('value', 0.0)):.4f})",
+                ]
+            )
+
+        self.text_report_view.setPlainText("\n".join(lines))
+
     def select_top_models(self):
         rows = self.table_models_pick.rowCount()
         for r in range(rows):
@@ -1044,6 +1640,7 @@ class ResultsPage(QWidget):
             ax.set_title("请先在表格中选择模型")
             self.canvas_models.draw()
             self.text_models_summary.setPlainText("未选择模型。")
+            self._clear_compare_analysis("请先勾选需要比较的模型，右侧会同步生成热力图、步长矩阵和报告摘要。")
             return
 
         metric = self.combo_model_metric.currentText()
@@ -1070,6 +1667,8 @@ class ResultsPage(QWidget):
                 f"RMSE={float(row.get('rmse', 0.0)):.4f}"
             )
         self.text_models_summary.setPlainText("\n".join(lines))
+        self._update_selected_compare_cards(rows, metric)
+        self._draw_metric_heatmap(rows)
         self.compare_selected_models_by_horizon()
 
     def compare_selected_models_by_horizon(self):
@@ -1089,6 +1688,8 @@ class ResultsPage(QWidget):
             self.canvas_horizon_curve.draw()
             self.text_horizon_summary.setPlainText("未选择模型。")
             self._last_horizon_rows = []
+            self._draw_horizon_metric_matrix([], self.combo_horizon_metric.currentText())
+            self._update_report_view(rows)
             return
 
         self._update_horizon_index_range(rows)
@@ -1121,6 +1722,8 @@ class ResultsPage(QWidget):
             self.text_horizon_summary.setPlainText(
                 "没有可用的分步指标数据，请在开启 horizon metrics 后重新训练模型。"
             )
+            self._draw_horizon_metric_matrix([], metric_key)
+            self._update_report_view(rows)
             return
 
         names = [item["model_name"] for item in self._last_horizon_rows]
@@ -1137,6 +1740,9 @@ class ResultsPage(QWidget):
 
         lines = self._build_horizon_summary_lines(rows, metric_key, horizon_index)
         self.text_horizon_summary.setPlainText("\n".join(lines))
+        self._draw_horizon_metric_matrix(rows, metric_key)
+        self._update_selected_compare_cards(rows, self.combo_model_metric.currentText())
+        self._update_report_view(rows)
 
     def export_selected_models_csv(self):
         rows = self._get_selected_model_rows()
@@ -1232,6 +1838,9 @@ class ResultsPage(QWidget):
 
         baseline_chart_path = (report_dir / "baseline_summary_chart.png").resolve()
         self.canvas_baseline.figure.savefig(str(baseline_chart_path), dpi=180, bbox_inches="tight")
+
+        resource_chart_path = (report_dir / "resource_precision_chart.png").resolve()
+        self.canvas_resource.figure.savefig(str(resource_chart_path), dpi=180, bbox_inches="tight")
 
         pred_fig_local = self.report_service.copy_file_if_exists(self._pred_fig_path, report_dir)
         pred_detail_fig_local = self.report_service.copy_file_if_exists(self._pred_detail_fig_path, report_dir)
@@ -1344,6 +1953,7 @@ class ResultsPage(QWidget):
             baseline_rows=self._baseline_rows,
             baseline_metric=self.combo_baseline_metric.currentText().strip(),
             baseline_chart_file=str(baseline_chart_path),
+            resource_chart_file=str(resource_chart_path),
         )
 
         if pred_detail_fig_local:
@@ -1386,6 +1996,64 @@ class ResultsPage(QWidget):
             return
 
         self.canvas_compare.figure.savefig(save_path, dpi=180, bbox_inches="tight")
+
+    def export_resource_analysis_csv(self):
+        if not self._last_resource_rows:
+            return
+
+        save_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "导出资源分析",
+            "resource_precision_analysis.csv",
+            "CSV Files (*.csv)",
+        )
+        if not save_path:
+            return
+
+        headers = [
+            "rank", "model_name", "graph_type", "spatial_type", "temporal_type",
+            "cost_metric", "cost_value", "precision_metric", "precision_value",
+            "num_params", "peak_gpu_mb", "mae", "mape", "rmse", "time",
+        ]
+        with open(save_path, "w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.DictWriter(f, fieldnames=headers)
+            writer.writeheader()
+            ranked_rows = sorted(
+                self._last_resource_rows,
+                key=lambda row: (row["_resource_metric"], row["_resource_cost"]),
+            )
+            for idx, row in enumerate(ranked_rows, start=1):
+                writer.writerow(
+                    {
+                        "rank": idx,
+                        "model_name": row.get("model_name", ""),
+                        "graph_type": row.get("graph_type", ""),
+                        "spatial_type": row.get("spatial_type", ""),
+                        "temporal_type": row.get("temporal_type", ""),
+                        "cost_metric": self._last_resource_cost,
+                        "cost_value": f"{row['_resource_cost']:.6f}",
+                        "precision_metric": self._last_resource_metric,
+                        "precision_value": f"{row['_resource_metric']:.6f}",
+                        "num_params": row.get("num_params", ""),
+                        "peak_gpu_mb": row.get("peak_gpu_mb", ""),
+                        "mae": row.get("mae", ""),
+                        "mape": row.get("mape", ""),
+                        "rmse": row.get("rmse", ""),
+                        "time": row.get("time", ""),
+                    }
+                )
+
+    def export_resource_analysis_chart(self):
+        save_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "导出资源图",
+            "resource_precision_chart.png",
+            "PNG Files (*.png)",
+        )
+        if not save_path:
+            return
+
+        self.canvas_resource.figure.savefig(save_path, dpi=180, bbox_inches="tight")
 
     @staticmethod
     @contextmanager

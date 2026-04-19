@@ -1,15 +1,30 @@
 import unittest
 
-import torch
+try:
+    import torch
+    from src.models.builder import build_model
+    from src.models.spatial.graph_ops import build_binary_attention_mask, scaled_laplacian, symmetric_normalize_adjacency
+    from src.models.spatial.chebnet import ChebNetSpatial
+    from src.models.spatial.gat import GATSpatial
+    from src.models.spatial.gcn import GCNSpatial
+    from src.models.temporal.gru import GRUTemporal
+    from src.models.temporal.tcn import TCNTemporal
+    TORCH_AVAILABLE = True
+except ModuleNotFoundError:
+    torch = None
+    build_model = None
+    build_binary_attention_mask = None
+    scaled_laplacian = None
+    symmetric_normalize_adjacency = None
+    ChebNetSpatial = None
+    GATSpatial = None
+    GCNSpatial = None
+    GRUTemporal = None
+    TCNTemporal = None
+    TORCH_AVAILABLE = False
 
-from src.models.builder import build_model
-from src.models.spatial.graph_ops import build_binary_attention_mask, scaled_laplacian, symmetric_normalize_adjacency
-from src.models.spatial.chebnet import ChebNetSpatial
-from src.models.spatial.gat import GATSpatial
-from src.models.spatial.gcn import GCNSpatial
-from src.models.temporal.gru import GRUTemporal
 
-
+@unittest.skipIf(not TORCH_AVAILABLE, "PyTorch is not installed in the current environment")
 class ModelBlockTests(unittest.TestCase):
     def setUp(self):
         torch.manual_seed(42)
@@ -55,6 +70,12 @@ class ModelBlockTests(unittest.TestCase):
         self.assertEqual(out.shape, (self.batch_size, self.num_nodes, 12))
         self.assertTrue(torch.isfinite(out).all().item())
 
+    def test_tcn_forward_shape(self):
+        model = TCNTemporal(input_dim=self.hidden_dim, hidden_dim=12, num_layers=3, kernel_size=3, dropout=0.1)
+        out = model(self.sequence_features)
+        self.assertEqual(out.shape, (self.batch_size, self.num_nodes, 12))
+        self.assertTrue(torch.isfinite(out).all().item())
+
     def test_build_model_multistep_shape(self):
         cfg = {
             "model": {
@@ -82,6 +103,32 @@ class ModelBlockTests(unittest.TestCase):
         }
         out = model(batch)
         self.assertEqual(out.shape, (self.batch_size, self.num_nodes, 3, 1))
+        self.assertTrue(torch.isfinite(out).all().item())
+
+    def test_build_model_with_tcn_multistep_shape(self):
+        cfg = {
+            "model": {
+                "name": "unit_test_tcn_model",
+                "graph": {"type": "connect"},
+                "input": {"history_length": self.history_length, "input_dim": 1},
+                "spatial": {"type": "chebnet", "hidden_dim": 8, "cheb_k": 3},
+                "temporal": {"type": "tcn", "hidden_dim": 16, "num_layers": 2, "kernel_size": 3},
+                "regularization": {"dropout": 0.1},
+                "output": {
+                    "output_dim": 1,
+                    "predict_steps": 4,
+                    "head_type": "linear",
+                    "use_last_value_residual": True,
+                },
+            }
+        }
+        model = build_model(cfg)
+        batch = {
+            "graph": self.graph,
+            "flow_x": torch.randn(self.batch_size, self.num_nodes, self.history_length, 1),
+        }
+        out = model(batch)
+        self.assertEqual(out.shape, (self.batch_size, self.num_nodes, 4, 1))
         self.assertTrue(torch.isfinite(out).all().item())
 
     def test_graph_ops_keep_isolated_nodes_valid(self):

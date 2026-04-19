@@ -80,3 +80,5 @@ preprocess:
 - `tests.test_model_blocks` 单元测试
 
 如果需要查看这轮真实实验的详细指标、分步长结果和结论建议，请继续阅读 `docs/experiment_results.md`。
+
+如果需要在论文或答辩中说明数据使用边界、隐私保护、显存记录和训练成本，请继续阅读 `docs/compliance_and_sustainability.md`。

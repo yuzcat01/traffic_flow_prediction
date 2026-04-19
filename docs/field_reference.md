@@ -154,11 +154,13 @@ model:
 - `spatial.heads`
   GAT 注意力头数。
 - `temporal.type`
-  时间模块类型，支持 `gru`、`none`。
+  时间模块类型，支持 `gru`、`tcn`、`none`。
 - `temporal.hidden_dim`
   时间模块隐藏维度。
 - `temporal.num_layers`
-  GRU 层数。
+  时间模块层数，适用于 `GRU` 和 `TCN`。
+- `temporal.kernel_size`
+  `TCN` 卷积核大小，默认 `3`。
 - `regularization.dropout`
   通用 dropout 比例。
 - `output.output_dim`

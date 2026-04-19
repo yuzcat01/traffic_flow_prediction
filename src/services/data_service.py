@@ -138,14 +138,21 @@ class DataService:
         self,
         preview: Dict[str, Any],
         node_id: int,
+        start_index: int,
         max_points: Optional[int],
         save_path: str,
     ):
-        series = self.get_node_series(preview=preview, node_id=node_id, max_points=max_points)
+        series = self.get_node_series(
+            preview=preview,
+            node_id=node_id,
+            start_index=start_index,
+            max_points=max_points,
+        )
         out_path = Path(save_path).resolve()
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
-        rows = np.column_stack([np.arange(len(series), dtype=np.int64), series.astype(np.float64)])
+        time_index = np.arange(start_index, start_index + len(series), dtype=np.int64)
+        rows = np.column_stack([time_index, series.astype(np.float64)])
         header = "time_step,traffic_flow"
         np.savetxt(out_path, rows, fmt=["%d", "%.6f"], delimiter=",", header=header, comments="")
 
@@ -232,24 +239,42 @@ class DataService:
             "adjacency": adjacency,
         }
 
-    def get_node_series(self, preview: Dict[str, Any], node_id: int, max_points: Optional[int] = None):
+    def get_node_series(
+        self,
+        preview: Dict[str, Any],
+        node_id: int,
+        start_index: int = 0,
+        max_points: Optional[int] = None,
+    ):
         flow_data = preview["flow_data"]
         node_id = max(0, min(node_id, flow_data.shape[0] - 1))
+        total_steps = flow_data.shape[1]
+        start_index = max(0, min(int(start_index), max(0, total_steps - 1)))
 
-        series = flow_data[node_id, :, 0]
-        if max_points is not None and max_points > 0 and len(series) > max_points:
-            series = series[:max_points]
+        end_index = total_steps
+        if max_points is not None and max_points > 0:
+            end_index = min(total_steps, start_index + int(max_points))
+
+        series = flow_data[node_id, start_index:end_index, 0]
 
         return series.astype(float)
 
     def get_flow_heatmap(
         self,
         preview: Dict[str, Any],
+        start_index: int = 0,
+        start_node: int = 0,
         max_nodes: int = 32,
         max_points: int = 288,
     ) -> np.ndarray:
         flow_data = preview["flow_data"]
-        max_nodes = max(1, min(int(max_nodes), flow_data.shape[0]))
-        max_points = max(1, min(int(max_points), flow_data.shape[1]))
-        heatmap = flow_data[:max_nodes, :max_points, 0]
+        total_nodes = flow_data.shape[0]
+        start_node = max(0, min(int(start_node), max(0, total_nodes - 1)))
+        max_nodes = max(1, int(max_nodes))
+        end_node = min(total_nodes, start_node + max_nodes)
+        total_steps = flow_data.shape[1]
+        start_index = max(0, min(int(start_index), max(0, total_steps - 1)))
+        max_points = max(1, int(max_points))
+        end_index = min(total_steps, start_index + max_points)
+        heatmap = flow_data[start_node:end_node, start_index:end_index, 0]
         return heatmap.astype(float, copy=False)

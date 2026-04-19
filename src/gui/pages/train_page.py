@@ -91,6 +91,40 @@ class TrainPage(QWidget):
         config_layout.addLayout(generate_btn_layout, 3, 0, 1, 2)
         config_layout.setColumnStretch(1, 1)
 
+        template_group = QGroupBox("快速实验模板")
+        template_layout = QVBoxLayout(template_group)
+        template_layout.setSpacing(10)
+
+        template_btn_layout = QHBoxLayout()
+        template_btn_layout.setSpacing(8)
+        self.btn_template_quick = QPushButton("快速实验")
+        self.btn_template_multistep = QPushButton("多步稳定")
+        self.btn_template_gat = QPushButton("GAT 稳定版")
+        self.btn_template_showcase = QPushButton("标准展示配置")
+
+        self.btn_template_quick.clicked.connect(lambda: self.apply_quick_template("quick"))
+        self.btn_template_multistep.clicked.connect(lambda: self.apply_quick_template("multistep"))
+        self.btn_template_gat.clicked.connect(lambda: self.apply_quick_template("gat"))
+        self.btn_template_showcase.clicked.connect(lambda: self.apply_quick_template("showcase"))
+
+        template_btn_layout.addWidget(self.btn_template_quick)
+        template_btn_layout.addWidget(self.btn_template_multistep)
+        template_btn_layout.addWidget(self.btn_template_gat)
+        template_btn_layout.addWidget(self.btn_template_showcase)
+        template_btn_layout.addStretch()
+
+        self.label_template_hint = QLabel(
+            "用于快速切换常见训练组合，减少临场逐项修改。模板会自动联动数据、训练和模型配置，并覆盖少量展示参数。"
+        )
+        self.label_template_hint.setWordWrap(True)
+        self.label_template_hint.setStyleSheet(
+            "padding: 10px 12px; background: #f8fafc; color: #475569; "
+            "border: 1px solid #e2e8f0; border-radius: 8px;"
+        )
+
+        template_layout.addLayout(template_btn_layout)
+        template_layout.addWidget(self.label_template_hint)
+
         params_group = QGroupBox("参数覆盖设置")
         params_main_layout = QVBoxLayout(params_group)
         params_main_layout.setSpacing(12)
@@ -144,7 +178,7 @@ class TrainPage(QWidget):
         self.check_use_abs_corr = QCheckBox("取绝对相关系数")
         self.spin_fusion_alpha = QDoubleSpinBox(); self.spin_fusion_alpha.setDecimals(3); self.spin_fusion_alpha.setRange(0.0, 1.0); self.spin_fusion_alpha.setSingleStep(0.05)
 
-        self.combo_temporal_type = QComboBox(); self.combo_temporal_type.addItems(["gru", "none"])
+        self.combo_temporal_type = QComboBox(); self.combo_temporal_type.addItems(["gru", "tcn", "none"])
         self.combo_temporal_type.currentIndexChanged.connect(self._refresh_param_enable_state)
         self.spin_temporal_hidden = QSpinBox(); self.spin_temporal_hidden.setRange(1, 4096)
 
@@ -267,6 +301,7 @@ class TrainPage(QWidget):
         layout.addWidget(title)
         layout.addWidget(desc)
         layout.addWidget(config_group)
+        layout.addWidget(template_group)
         layout.addWidget(params_group)
         layout.addLayout(btn_layout)
         layout.addWidget(status_group)
@@ -344,6 +379,90 @@ class TrainPage(QWidget):
             QMessageBox.information(self, "模型配置", msg)
         except Exception as e:
             QMessageBox.critical(self, "模型配置生成失败", str(e))
+
+    def _set_combo_to_filename(self, combo: QComboBox, filename: str) -> bool:
+        idx = combo.findText(filename)
+        if idx < 0:
+            return False
+        combo.setCurrentIndex(idx)
+        return True
+
+    def apply_quick_template(self, template_key: str):
+        templates = {
+            "quick": {
+                "label": "快速实验",
+                "data": "pems04.yaml",
+                "train": "default.yaml",
+                "model": "gcn_gru.yaml",
+                "run_suffix": "quick_exp",
+                "figure_points": 288,
+                "figure_horizon_step": 0,
+            },
+            "multistep": {
+                "label": "多步稳定",
+                "data": "pems04.yaml",
+                "train": "multistep.yaml",
+                "model": "gcn_gru_h12.yaml",
+                "run_suffix": "multistep_stable",
+                "figure_points": 576,
+                "figure_horizon_step": 5,
+            },
+            "gat": {
+                "label": "GAT 稳定版",
+                "data": "pems04.yaml",
+                "train": "gat_multistep_safe.yaml",
+                "model": "gat_gru_h6.yaml",
+                "run_suffix": "gat_safe",
+                "figure_points": 576,
+                "figure_horizon_step": 2,
+            },
+            "showcase": {
+                "label": "标准展示配置",
+                "data": "pems04.yaml",
+                "train": "multistep.yaml",
+                "model": "gcn_gru_h12.yaml",
+                "run_suffix": "showcase",
+                "figure_points": 720,
+                "figure_horizon_step": 5,
+                "batch_size": 64,
+                "epochs": 60,
+            },
+        }
+
+        template = templates.get(template_key)
+        if template is None:
+            return
+
+        missing = []
+        if not self._set_combo_to_filename(self.combo_data_cfg, template["data"]):
+            missing.append(template["data"])
+        if not self._set_combo_to_filename(self.combo_train_cfg, template["train"]):
+            missing.append(template["train"])
+        if not self._set_combo_to_filename(self.combo_model_cfg, template["model"]):
+            missing.append(template["model"])
+
+        self.load_defaults_from_selected_configs()
+
+        if "epochs" in template:
+            self.spin_epochs.setValue(int(template["epochs"]))
+        if "batch_size" in template:
+            self.spin_batch_size.setValue(int(template["batch_size"]))
+        self.spin_figure_points.setValue(int(template["figure_points"]))
+        self.spin_figure_horizon_step.setValue(int(template["figure_horizon_step"]))
+        self.edit_run_suffix.setText(str(template["run_suffix"]))
+
+        msg = f">>> 已应用模板：{template['label']}"
+        self.append_log(msg)
+        if missing:
+            self.append_log(f">>> 缺失配置文件：{', '.join(missing)}")
+            self.label_template_hint.setText(
+                f"{template['label']} 已部分应用。当前环境缺少: {', '.join(missing)}。"
+            )
+        else:
+            self.label_template_hint.setText(
+                f"当前模板：{template['label']}。数据/训练/模型配置已联动切换，可直接开始训练。"
+            )
+        self._update_selected_label()
 
     def _fill_combo(self, combo: QComboBox, items):
         combo.blockSignals(True)
@@ -462,7 +581,7 @@ class TrainPage(QWidget):
 
         self.spin_cheb_k.setEnabled(spatial_type == "chebnet")
         self.spin_gat_heads.setEnabled(spatial_type == "gat")
-        self.spin_temporal_hidden.setEnabled(temporal_type == "gru")
+        self.spin_temporal_hidden.setEnabled(temporal_type in {"gru", "tcn"})
 
         self.spin_figure_horizon_step.setRange(0, max(0, self.spin_predict_steps.value() - 1))
         if self.spin_figure_horizon_step.value() >= self.spin_predict_steps.value():
@@ -564,7 +683,7 @@ class TrainPage(QWidget):
             overrides["model"]["spatial"]["cheb_k"] = self.spin_cheb_k.value()
         if spatial_type == "gat":
             overrides["model"]["spatial"]["heads"] = self.spin_gat_heads.value()
-        if temporal_type == "gru":
+        if temporal_type in {"gru", "tcn"}:
             overrides["model"]["temporal"]["hidden_dim"] = self.spin_temporal_hidden.value()
 
         return overrides

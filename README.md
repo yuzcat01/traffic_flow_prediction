@@ -5,7 +5,7 @@
 当前项目已经覆盖这些核心能力：
 
 - 支持 `GCN`、`ChebNet`、`GAT` 三类空间建模模块
-- 支持 `GRU` / `none` 两类时间建模模块
+- 支持 `GRU` / `TCN` / `none` 三类时间建模模块
 - 支持缺失值处理与基础异常值裁剪预处理
 - 支持训练、测试、结果记录、模型推理
 - 支持多种建图策略：`connect`、`distance`、`correlation`、`distance_correlation`
@@ -49,6 +49,7 @@ traffic_flow_prediction/
 - `docs/technical_design.md`：技术设计说明
 - `docs/field_reference.md`：配置字段说明
 - `docs/runtime_guide.md`：本地运行与复现说明
+- `docs/compliance_and_sustainability.md`：数据合规、隐私边界与资源消耗说明
 - `docs/experiment_results.md`：`h3 / h6 / h12` 三组真实实验结果
 - `docs/paper_tables.md`：论文表格与正文引用模板
 - `docs/defense_summary.md`：答辩讲解提纲
@@ -306,7 +307,7 @@ model:
 常见可选值：
 
 - `spatial.type`：`gcn` / `chebnet` / `gat`
-- `temporal.type`：`gru` / `none`
+- `temporal.type`：`gru` / `tcn` / `none`
 - `graph.type`：`connect` / `distance` / `correlation` / `distance_correlation`
 
 ## 建图策略

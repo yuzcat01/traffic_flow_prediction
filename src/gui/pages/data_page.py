@@ -79,9 +79,7 @@ class DataPage(QWidget):
         config_layout.setVerticalSpacing(10)
 
         self.combo_data_cfg = QComboBox()
-        self.combo_model_cfg = QComboBox()
         self.combo_data_cfg.setMaximumWidth(320)
-        self.combo_model_cfg.setMaximumWidth(320)
         self.btn_refresh_cfg = QPushButton("刷新配置列表")
         self.btn_load_preview = QPushButton("加载数据预览")
 
@@ -90,10 +88,8 @@ class DataPage(QWidget):
 
         config_layout.addWidget(QLabel("数据配置:"), 0, 0)
         config_layout.addWidget(self.combo_data_cfg, 0, 1)
-        config_layout.addWidget(QLabel("模型配置:"), 1, 0)
-        config_layout.addWidget(self.combo_model_cfg, 1, 1)
         config_layout.addWidget(self.btn_refresh_cfg, 0, 2)
-        config_layout.addWidget(self.btn_load_preview, 1, 2)
+        config_layout.addWidget(self.btn_load_preview, 0, 3)
 
         io_group = QGroupBox("数据导入与配置生成")
         io_layout = QGridLayout(io_group)
@@ -220,6 +216,11 @@ class DataPage(QWidget):
         self.spin_node_id.setMaximumWidth(120)
         self.spin_node_id.valueChanged.connect(self.update_plot)
 
+        self.spin_start_index = QSpinBox()
+        self.spin_start_index.setRange(0, 0)
+        self.spin_start_index.setMaximumWidth(140)
+        self.spin_start_index.valueChanged.connect(self.update_plot)
+
         self.spin_points = QSpinBox()
         self.spin_points.setRange(50, 50000)
         self.spin_points.setValue(300)
@@ -231,6 +232,11 @@ class DataPage(QWidget):
         self.spin_heatmap_nodes.setValue(32)
         self.spin_heatmap_nodes.setMaximumWidth(120)
         self.spin_heatmap_nodes.valueChanged.connect(self.update_plot)
+
+        self.spin_heatmap_start_node = QSpinBox()
+        self.spin_heatmap_start_node.setRange(0, 0)
+        self.spin_heatmap_start_node.setMaximumWidth(140)
+        self.spin_heatmap_start_node.valueChanged.connect(self.update_plot)
 
         self.btn_refresh_plot = QPushButton("刷新曲线")
         self.btn_refresh_plot.clicked.connect(self.update_plot)
@@ -244,8 +250,14 @@ class DataPage(QWidget):
         preview_ctrl_layout.addWidget(QLabel("node_id:"))
         preview_ctrl_layout.addWidget(self.spin_node_id)
         preview_ctrl_layout.addSpacing(10)
+        preview_ctrl_layout.addWidget(QLabel("起始点:"))
+        preview_ctrl_layout.addWidget(self.spin_start_index)
+        preview_ctrl_layout.addSpacing(10)
         preview_ctrl_layout.addWidget(QLabel("显示点数:"))
         preview_ctrl_layout.addWidget(self.spin_points)
+        preview_ctrl_layout.addSpacing(10)
+        preview_ctrl_layout.addWidget(QLabel("热力图开始节点:"))
+        preview_ctrl_layout.addWidget(self.spin_heatmap_start_node)
         preview_ctrl_layout.addSpacing(10)
         preview_ctrl_layout.addWidget(QLabel("热力图节点数:"))
         preview_ctrl_layout.addWidget(self.spin_heatmap_nodes)
@@ -284,10 +296,7 @@ class DataPage(QWidget):
 
     def refresh_config_options(self):
         data_items = self.config_service.list_data_configs()
-        model_items = self.config_service.list_model_configs()
-
         self._fill_combo(self.combo_data_cfg, data_items)
-        self._fill_combo(self.combo_model_cfg, model_items)
 
     def _fill_combo(self, combo, items):
         combo.blockSignals(True)
@@ -369,7 +378,6 @@ class DataPage(QWidget):
 
     def load_preview(self):
         data_cfg_path = self.combo_data_cfg.currentData()
-        model_cfg_path = self.combo_model_cfg.currentData()
 
         if not data_cfg_path:
             QMessageBox.warning(self, "提示", "请先选择数据配置文件。")
@@ -378,12 +386,16 @@ class DataPage(QWidget):
         try:
             self.preview = self.data_service.load_preview(
                 data_cfg_path=data_cfg_path,
-                model_cfg_path=model_cfg_path,
             )
 
             max_node = max(0, int(self.preview["num_nodes_actual"]) - 1)
+            max_step = max(0, int(self.preview["total_steps"]) - 1)
             self.spin_node_id.setRange(0, max_node)
+            self.spin_start_index.setRange(0, max_step)
+            self.spin_heatmap_start_node.setRange(0, max_node)
             self.spin_heatmap_nodes.setRange(1, max(1, int(self.preview["num_nodes_actual"])))
+            self.spin_start_index.setValue(0)
+            self.spin_heatmap_start_node.setValue(0)
 
             self.edit_dataset_name.setText(str(self.preview.get("dataset_name", "ImportedDataset")))
             self.spin_num_nodes.setValue(int(self.preview.get("num_nodes_actual", 307)))
@@ -457,43 +469,67 @@ class DataPage(QWidget):
             return
 
         node_id = self.spin_node_id.value()
+        start_index = self.spin_start_index.value()
         max_points = self.spin_points.value()
 
         series = self.data_service.get_node_series(
             preview=self.preview,
             node_id=node_id,
+            start_index=start_index,
             max_points=max_points,
         )
+        x_values = list(range(start_index, start_index + len(series)))
 
         ax = self.canvas_series.ax
         ax.clear()
-        ax.plot(range(len(series)), series)
+        ax.plot(x_values, series)
         ax.set_title(
-            f"Node {node_id} Traffic Flow Preview (first {len(series)} points)"
+            f"Node {node_id} Traffic Flow Preview ({start_index} - {start_index + max(0, len(series) - 1)})"
         )
-        ax.set_xlabel("Time Step")
+        if x_values:
+            ax.set_xlim(x_values[0], x_values[-1])
+        ax.set_xlabel("Time Step Index")
         ax.set_ylabel("Traffic Flow")
         ax.grid(True, linestyle="--", alpha=0.3)
         self.canvas_series.figure.tight_layout()
         self.canvas_series.draw()
-        self._update_heatmap(max_points=max_points)
+        self._update_heatmap(start_index=start_index, max_points=max_points)
 
-    def _update_heatmap(self, max_points: int):
+    def _update_heatmap(self, start_index: int, max_points: int):
         if self.preview is None:
             return
 
+        start_node = self.spin_heatmap_start_node.value()
         heatmap = self.data_service.get_flow_heatmap(
             preview=self.preview,
+            start_index=start_index,
+            start_node=start_node,
             max_nodes=self.spin_heatmap_nodes.value(),
             max_points=max_points,
         )
 
         self.canvas_heatmap.reset_axes()
         ax = self.canvas_heatmap.ax
-        image = ax.imshow(heatmap, aspect="auto", origin="lower", cmap="YlOrRd")
-        ax.set_title(f"Traffic Flow Heatmap ({heatmap.shape[0]} nodes x {heatmap.shape[1]} steps)")
-        ax.set_xlabel("Time Step")
-        ax.set_ylabel("Node Index")
+        end_time = start_index + max(0, heatmap.shape[1] - 1)
+        end_node = start_node + max(0, heatmap.shape[0] - 1)
+        image = ax.imshow(
+            heatmap,
+            aspect="auto",
+            origin="lower",
+            cmap="YlOrRd",
+            extent=(
+                start_index - 0.5,
+                end_time + 0.5,
+                start_node - 0.5,
+                end_node + 0.5,
+            ),
+        )
+        ax.set_title(
+            f"Traffic Flow Heatmap ({heatmap.shape[0]} nodes x {heatmap.shape[1]} steps, "
+            f"time_start={start_index}, node_start={start_node})"
+        )
+        ax.set_xlabel("Time Step Index")
+        ax.set_ylabel("Node ID")
 
         self.canvas_heatmap.figure.colorbar(
             image,
@@ -531,6 +567,7 @@ class DataPage(QWidget):
             return
 
         node_id = self.spin_node_id.value()
+        start_index = self.spin_start_index.value()
         max_points = self.spin_points.value()
 
         save_path, _ = QFileDialog.getSaveFileName(
@@ -546,6 +583,7 @@ class DataPage(QWidget):
             self.data_service.export_node_series(
                 preview=self.preview,
                 node_id=node_id,
+                start_index=start_index,
                 max_points=max_points,
                 save_path=save_path,
             )

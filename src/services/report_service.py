@@ -58,6 +58,7 @@ class ExperimentReportService:
         baseline_rows: Optional[List[Dict]] = None,
         baseline_metric: str = "rmse_mean",
         baseline_chart_file: str = "",
+        resource_chart_file: str = "",
     ) -> Path:
         def _safe_float(v, default=1e18):
             try:
@@ -206,6 +207,12 @@ class ExperimentReportService:
             lines.append("### Baseline Summary Chart")
             lines.append("")
             lines.append(f"![baseline_summary_chart]({Path(baseline_chart_file).name})")
+            lines.append("")
+
+        if resource_chart_file:
+            lines.append("## Resource vs Precision")
+            lines.append("")
+            lines.append(f"![resource_precision_chart]({Path(resource_chart_file).name})")
             lines.append("")
 
         md_path = (report_dir / "report.md").resolve()
