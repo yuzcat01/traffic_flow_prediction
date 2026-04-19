@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -852,7 +853,6 @@ class ResultsPage(QWidget):
             self._last_compare_rows = []
             self._update_overview_cards(rows, [])
             self.refresh_model_pool()
-            self.refresh_resource_analysis()
             self._clear_compare_analysis("暂无实验记录，报告视图会在产生训练结果后自动汇总。")
             return
 
@@ -941,7 +941,6 @@ class ResultsPage(QWidget):
         self.text_ranking.setPlainText("\n".join(lines))
         self.refresh_model_pool()
         self.refresh_baseline_summary()
-        self.refresh_resource_analysis()
         self._update_report_view(self._get_selected_model_rows())
 
     @staticmethod
@@ -1087,31 +1086,39 @@ class ResultsPage(QWidget):
         )
         return front
 
+    def _clear_resource_analysis(self, title: str, message: str, metric_key: str, cost_key: str):
+        self._last_resource_rows = []
+        self._last_resource_metric = metric_key
+        self._last_resource_cost = cost_key
+        self.card_resource_best.set_value("-")
+        self.card_resource_front.set_value("0")
+        self.card_resource_cost.set_value("-")
+        self.card_resource_metric.set_value("-")
+
+        ax = self.canvas_resource.ax
+        ax.clear()
+        self._style_axis(ax)
+        ax.set_title(title)
+        self.canvas_resource.draw()
+        self.text_resource.setPlainText(message)
+        self._update_report_view(self._get_selected_model_rows())
+
     def refresh_resource_analysis(self):
         rows = self._get_selected_model_rows()
         metric_key = self.combo_resource_metric.currentText().strip()
         cost_key = self.combo_resource_cost.currentText().strip()
         self.label_resource_scope.setText(f"已勾选模型：{len(rows)} 个")
 
-        ax = self.canvas_resource.ax
-        ax.clear()
-        self._style_axis(ax)
-
-        if not rows:
-            self._last_resource_rows = []
-            self._last_resource_metric = metric_key
-            self._last_resource_cost = cost_key
-            self.card_resource_best.set_value("-")
-            self.card_resource_front.set_value("0")
-            self.card_resource_cost.set_value("-")
-            self.card_resource_metric.set_value("-")
-            ax.set_title("请先勾选要对比的模型")
-            self.canvas_resource.draw()
-            self.text_resource.setPlainText(
-                "资源成本 vs 精度分析现在只比较下方多模型表格中已勾选的模型。\n"
-                "请先勾选 2 个或更多模型，或点击“选择 Top 3”。"
+        if len(rows) < 2:
+            self._clear_resource_analysis(
+                title="请至少勾选 2 个模型",
+                message=(
+                    "资源成本 vs 精度分析现在只比较下方多模型表格中已勾选的模型。\n"
+                    "请先勾选 2 个或更多模型，或点击“选择 Top 3”。"
+                ),
+                metric_key=metric_key,
+                cost_key=cost_key,
             )
-            self._update_report_view(self._get_selected_model_rows())
             return
 
         candidates = []
@@ -1131,18 +1138,22 @@ class ResultsPage(QWidget):
         self._last_resource_metric = metric_key
         self._last_resource_cost = cost_key
 
-        if not candidates:
-            self.card_resource_best.set_value("-")
-            self.card_resource_front.set_value("0")
-            self.card_resource_cost.set_value("-")
-            self.card_resource_metric.set_value("-")
-            ax.set_title("缺少可用资源字段")
-            self.canvas_resource.draw()
-            self.text_resource.setPlainText(
-                f"已勾选模型中缺少 {self._resource_label(cost_key)} 或 {self._resource_label(metric_key)}，无法生成对比图。"
+        if len(candidates) < 2:
+            self._clear_resource_analysis(
+                title="可分析模型不足 2 个",
+                message=(
+                    f"已勾选 {len(rows)} 个模型，但只有 {len(candidates)} 个模型同时具备 "
+                    f"{self._resource_label(cost_key)} 和 {self._resource_label(metric_key)} 字段。\n"
+                    "请补齐资源字段，或换选其它模型后再生成成本-精度对比。"
+                ),
+                metric_key=metric_key,
+                cost_key=cost_key,
             )
-            self._update_report_view(self._get_selected_model_rows())
             return
+
+        ax = self.canvas_resource.ax
+        ax.clear()
+        self._style_axis(ax)
 
         pareto_rows = self._compute_pareto_front(candidates, cost_key=cost_key, metric_key=metric_key)
         pareto_names = {str(row.get("model_name", "")) for row in pareto_rows}
@@ -1243,6 +1254,7 @@ class ResultsPage(QWidget):
         lines = [
             f"[资源成本 vs 精度] 精度指标={self._resource_label(metric_key)}，成本指标={self._resource_label(cost_key)}",
             "",
+            "对比来源：多模型表格中当前已勾选的模型",
             f"已选可分析模型数：{len(candidates)}",
             f"Pareto 前沿模型数：{len(pareto_rows)}",
             f"效率最优模型：{best_row.get('model_name', '')} | "
@@ -1622,11 +1634,15 @@ class ResultsPage(QWidget):
 
     def select_top_models(self):
         rows = self.table_models_pick.rowCount()
-        for r in range(rows):
-            item = self.table_models_pick.item(r, 0)
-            if item is None:
-                continue
-            item.setCheckState(Qt.Checked if r < 3 else Qt.Unchecked)
+        self._updating_model_pick_table = True
+        try:
+            for r in range(rows):
+                item = self.table_models_pick.item(r, 0)
+                if item is None:
+                    continue
+                item.setCheckState(Qt.Checked if r < 3 else Qt.Unchecked)
+        finally:
+            self._updating_model_pick_table = False
         self.compare_selected_models()
 
     def _get_selected_model_rows(self):
@@ -2010,6 +2026,7 @@ class ResultsPage(QWidget):
 
     def export_resource_analysis_csv(self):
         if not self._last_resource_rows:
+            QMessageBox.information(self, "暂无可导出数据", "请先勾选至少 2 个具备资源字段的模型并刷新资源分析。")
             return
 
         save_path, _ = QFileDialog.getSaveFileName(
@@ -2055,6 +2072,10 @@ class ResultsPage(QWidget):
                 )
 
     def export_resource_analysis_chart(self):
+        if not self._last_resource_rows:
+            QMessageBox.information(self, "暂无可导出图表", "请先勾选至少 2 个具备资源字段的模型并刷新资源分析。")
+            return
+
         save_path, _ = QFileDialog.getSaveFileName(
             self,
             "导出资源图",
