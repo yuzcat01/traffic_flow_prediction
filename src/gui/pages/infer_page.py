@@ -175,6 +175,22 @@ class InferPage(QWidget):
         chart_layout.addWidget(node_chart_group, 1)
         chart_layout.addWidget(all_chart_group, 1)
 
+        analysis_chart_layout = QHBoxLayout()
+        analysis_chart_layout.setSpacing(16)
+
+        horizon_metric_group = QGroupBox("样本分步长误差")
+        horizon_metric_layout = QVBoxLayout(horizon_metric_group)
+        self.canvas_horizon_metrics = MplCanvas(self, width=8, height=3.6, dpi=100)
+        horizon_metric_layout.addWidget(self.canvas_horizon_metrics)
+
+        heatmap_group = QGroupBox("节点-步长误差热力图")
+        heatmap_layout = QVBoxLayout(heatmap_group)
+        self.canvas_error_heatmap = MplCanvas(self, width=8, height=3.6, dpi=100)
+        heatmap_layout.addWidget(self.canvas_error_heatmap)
+
+        analysis_chart_layout.addWidget(horizon_metric_group, 1)
+        analysis_chart_layout.addWidget(heatmap_group, 1)
+
         text_layout = QHBoxLayout()
         text_layout.setSpacing(16)
 
@@ -215,6 +231,7 @@ class InferPage(QWidget):
         layout.addWidget(desc)
         layout.addLayout(top_layout)
         layout.addLayout(chart_layout)
+        layout.addLayout(analysis_chart_layout)
         layout.addLayout(text_layout)
 
         root.addWidget(panel)
@@ -263,6 +280,14 @@ class InferPage(QWidget):
         self.canvas_all_nodes.ax.set_title("暂无数据")
         self.canvas_all_nodes.draw()
 
+        self.canvas_horizon_metrics.ax.clear()
+        self.canvas_horizon_metrics.ax.set_title("暂无数据")
+        self.canvas_horizon_metrics.draw()
+
+        self.canvas_error_heatmap.ax.clear()
+        self.canvas_error_heatmap.ax.set_title("暂无数据")
+        self.canvas_error_heatmap.draw()
+
     def _on_controls_changed(self):
         if self.predictor is None:
             return
@@ -292,6 +317,9 @@ class InferPage(QWidget):
             abs_err_all = np.abs(pred_all - target_all)
             pred_node_all_h = np.asarray(result["prediction_node_all_horizons"], dtype=float)
             target_node_all_h = np.asarray(result["target_node_all_horizons"], dtype=float)
+            pred_all_h = np.asarray(result["prediction_all_horizons"], dtype=float)
+            target_all_h = np.asarray(result["target_all_horizons"], dtype=float)
+            abs_err_matrix = np.abs(pred_all_h - target_all_h)
 
             mae = float(np.mean(abs_err_all))
             rmse = float(np.sqrt(np.mean((pred_all - target_all) ** 2)))
@@ -338,6 +366,19 @@ class InferPage(QWidget):
                 horizon_idx=horizon_idx,
                 topk_indices=topk_indices,
             )
+            horizon_metrics = self._compute_horizon_metrics(pred_all_h, target_all_h)
+            self._draw_horizon_metrics_chart(
+                horizon_metrics=horizon_metrics,
+                sample_index=sample_index,
+                horizon_idx=horizon_idx,
+            )
+            self._draw_error_heatmap(
+                abs_err_matrix=abs_err_matrix,
+                node_id=node_id,
+                horizon_idx=horizon_idx,
+                topk_indices=topk_indices,
+                sample_index=sample_index,
+            )
             self._update_info_text(
                 sample_index=sample_index,
                 node_id=node_id,
@@ -352,8 +393,11 @@ class InferPage(QWidget):
                 mape=mape,
                 pred_node_all_h=pred_node_all_h,
                 target_node_all_h=target_node_all_h,
-                pred_all_h=result["prediction_all_horizons"],
-                target_all_h=result["target_all_horizons"],
+                pred_all_h=pred_all_h,
+                target_all_h=target_all_h,
+                horizon_metrics=horizon_metrics,
+                abs_err_matrix=abs_err_matrix,
+                topk_indices=topk_indices,
             )
             self._update_topk_view(current_node_id=node_id)
 
@@ -457,6 +501,13 @@ class InferPage(QWidget):
                     if np.any(mask)
                     else 0.0
                 )
+                horizon_mae_values = np.mean(abs_err, axis=0)
+                node_mae_values = np.mean(abs_err, axis=1)
+                worst_horizon_idx = int(np.argmax(horizon_mae_values))
+                worst_node_idx = int(np.argmax(node_mae_values))
+                max_error_flat_idx = int(np.argmax(abs_err))
+                max_error_node, max_error_horizon = np.unravel_index(max_error_flat_idx, abs_err.shape)
+                max_error_value = float(abs_err[max_error_node, max_error_horizon])
 
                 pred_h0 = pred_full[:, 0]
                 target_h0 = target_full[:, 0]
@@ -472,6 +523,14 @@ class InferPage(QWidget):
                     f"{rmse_all:.6f}",
                     f"{mae_h0:.6f}",
                     f"{rmse_h0:.6f}",
+                    worst_node_idx,
+                    f"{float(node_mae_values[worst_node_idx]):.6f}",
+                    worst_horizon_idx + 1,
+                    f"{float(horizon_mae_values[worst_horizon_idx]):.6f}",
+                    int(max_error_node),
+                    int(max_error_horizon) + 1,
+                    f"{max_error_value:.6f}",
+                    f"{float(np.std(abs_err)):.6f}",
                 ]
                 for h in range(predict_steps):
                     pred_h = pred_full[:, h]
@@ -500,6 +559,14 @@ class InferPage(QWidget):
                         "rmse_all_horizons",
                         "mae_horizon0",
                         "rmse_horizon0",
+                        "worst_node_by_mean_abs_error",
+                        "worst_node_mae_all_horizons",
+                        "worst_horizon_by_mae",
+                        "worst_horizon_mae",
+                        "max_abs_error_node",
+                        "max_abs_error_horizon",
+                        "max_abs_error_value",
+                        "abs_error_std_all_horizons",
                     ]
                     + horizon_headers
                 )
@@ -606,6 +673,132 @@ class InferPage(QWidget):
         self.canvas_all_nodes.figure.tight_layout()
         self.canvas_all_nodes.draw()
 
+    @staticmethod
+    def _compute_horizon_metrics(pred_all_h, target_all_h):
+        pred_all_h = np.asarray(pred_all_h, dtype=float)
+        target_all_h = np.asarray(target_all_h, dtype=float)
+        if pred_all_h.ndim != 2 or target_all_h.ndim != 2 or pred_all_h.shape != target_all_h.shape:
+            return []
+
+        metrics = []
+        for horizon_idx in range(pred_all_h.shape[1]):
+            pred_h = pred_all_h[:, horizon_idx]
+            target_h = target_all_h[:, horizon_idx]
+            abs_h = np.abs(pred_h - target_h)
+            mask_h = target_h > 1e-6
+            mape_h = (
+                float(np.mean(np.abs((pred_h[mask_h] - target_h[mask_h]) / target_h[mask_h])) * 100.0)
+                if np.any(mask_h)
+                else 0.0
+            )
+            metrics.append(
+                {
+                    "horizon_idx": horizon_idx,
+                    "mae": float(np.mean(abs_h)),
+                    "rmse": float(np.sqrt(np.mean((pred_h - target_h) ** 2))),
+                    "mape": mape_h,
+                    "max_abs_error": float(np.max(abs_h)) if abs_h.size > 0 else 0.0,
+                    "worst_node": int(np.argmax(abs_h)) if abs_h.size > 0 else 0,
+                }
+            )
+        return metrics
+
+    def _draw_horizon_metrics_chart(self, horizon_metrics, sample_index, horizon_idx):
+        self.canvas_horizon_metrics.figure.clear()
+        ax = self.canvas_horizon_metrics.figure.add_subplot(111)
+        self.canvas_horizon_metrics.ax = ax
+
+        if not horizon_metrics:
+            ax.set_title("暂无分步长指标")
+            self.canvas_horizon_metrics.draw()
+            return
+
+        x = np.arange(1, len(horizon_metrics) + 1)
+        mae = np.array([item["mae"] for item in horizon_metrics], dtype=float)
+        rmse = np.array([item["rmse"] for item in horizon_metrics], dtype=float)
+        mape = np.array([item["mape"] for item in horizon_metrics], dtype=float)
+
+        ax.plot(x, mae, marker="o", linewidth=2, color="#2563eb", label="MAE")
+        ax.plot(x, rmse, marker="s", linewidth=2, color="#f59e0b", label="RMSE")
+        ax2 = ax.twinx()
+        ax2.plot(x, mape, marker="^", linewidth=1.8, color="#059669", label="MAPE(%)", alpha=0.85)
+
+        selected_x = horizon_idx + 1
+        if 1 <= selected_x <= len(horizon_metrics):
+            ax.axvline(selected_x, color="#64748b", linestyle="--", alpha=0.65)
+
+        ax.set_title(f"Sample {sample_index} | Metrics by Horizon")
+        ax.set_xlabel("Horizon Step")
+        ax.set_ylabel("MAE / RMSE")
+        ax2.set_ylabel("MAPE(%)")
+        ax.set_xticks(x)
+        ax.grid(True, linestyle="--", alpha=0.3)
+
+        handles1, labels1 = ax.get_legend_handles_labels()
+        handles2, labels2 = ax2.get_legend_handles_labels()
+        ax.legend(handles1 + handles2, labels1 + labels2, loc="upper left", fontsize=8)
+
+        self.canvas_horizon_metrics.figure.tight_layout()
+        self.canvas_horizon_metrics.draw()
+
+    def _draw_error_heatmap(self, abs_err_matrix, node_id, horizon_idx, topk_indices, sample_index):
+        self.canvas_error_heatmap.figure.clear()
+        ax = self.canvas_error_heatmap.figure.add_subplot(111)
+        self.canvas_error_heatmap.ax = ax
+
+        abs_err_matrix = np.asarray(abs_err_matrix, dtype=float)
+        if abs_err_matrix.ndim != 2 or abs_err_matrix.size == 0:
+            ax.set_title("暂无误差热力图")
+            self.canvas_error_heatmap.draw()
+            return
+
+        num_nodes, predict_steps = abs_err_matrix.shape
+        focus_nodes = [int(node_id)] if 0 <= int(node_id) < num_nodes else []
+        for idx in np.asarray(topk_indices, dtype=int).tolist():
+            if 0 <= idx < num_nodes and idx not in focus_nodes:
+                focus_nodes.append(idx)
+
+        max_rows = min(40, num_nodes)
+        if len(focus_nodes) < max_rows:
+            node_scores = abs_err_matrix.mean(axis=1)
+            for idx in np.argsort(-node_scores):
+                idx = int(idx)
+                if idx not in focus_nodes:
+                    focus_nodes.append(idx)
+                if len(focus_nodes) >= max_rows:
+                    break
+
+        focus_nodes = focus_nodes[:max_rows]
+        heatmap_data = abs_err_matrix[focus_nodes, :]
+
+        image = ax.imshow(heatmap_data, aspect="auto", cmap="YlOrRd")
+        ax.set_title(f"Sample {sample_index} | Node-Horizon Absolute Error")
+        ax.set_xlabel("Horizon Step")
+        ax.set_ylabel("Node ID")
+        ax.set_xticks(np.arange(predict_steps))
+        ax.set_xticklabels([f"H{i + 1}" for i in range(predict_steps)])
+        ax.set_yticks(np.arange(len(focus_nodes)))
+        ax.set_yticklabels([str(idx) for idx in focus_nodes])
+
+        if node_id in focus_nodes and 0 <= horizon_idx < predict_steps:
+            row_idx = focus_nodes.index(node_id)
+            ax.scatter(
+                [horizon_idx],
+                [row_idx],
+                marker="s",
+                s=120,
+                facecolors="none",
+                edgecolors="#2563eb",
+                linewidths=2,
+                label="Selected Cell",
+            )
+            ax.legend(loc="upper right", fontsize=8)
+
+        cbar = self.canvas_error_heatmap.figure.colorbar(image, ax=ax, fraction=0.046, pad=0.04)
+        cbar.set_label("Absolute Error")
+        self.canvas_error_heatmap.figure.tight_layout()
+        self.canvas_error_heatmap.draw()
+
     def _update_info_text(
         self,
         sample_index,
@@ -623,6 +816,9 @@ class InferPage(QWidget):
         target_node_all_h,
         pred_all_h,
         target_all_h,
+        horizon_metrics,
+        abs_err_matrix,
+        topk_indices,
     ):
         model_name = "-"
         if self.current_model_row is not None:
@@ -635,6 +831,29 @@ class InferPage(QWidget):
         future_rmse = float(np.sqrt(np.mean((pred_node_all_h - target_node_all_h) ** 2))) if future_abs.size > 0 else 0.0
         pred_all_h = np.asarray(pred_all_h, dtype=float)
         target_all_h = np.asarray(target_all_h, dtype=float)
+        abs_err_matrix = np.asarray(abs_err_matrix, dtype=float)
+
+        worst_horizon = None
+        if horizon_metrics:
+            worst_horizon = max(horizon_metrics, key=lambda item: item["mae"])
+
+        current_rank = "-"
+        worst_node_all = "-"
+        worst_cell = None
+        if (
+            abs_err_matrix.ndim == 2
+            and abs_err_matrix.size > 0
+            and 0 <= node_id < abs_err_matrix.shape[0]
+            and 0 <= horizon_idx < abs_err_matrix.shape[1]
+        ):
+            selected_h_errors = abs_err_matrix[:, horizon_idx]
+            ranked_nodes = np.argsort(-selected_h_errors)
+            rank_positions = np.flatnonzero(ranked_nodes == node_id)
+            if rank_positions.size > 0:
+                current_rank = f"{int(rank_positions[0]) + 1}/{len(ranked_nodes)}"
+            worst_node_all = int(ranked_nodes[0])
+            worst_flat_idx = int(np.argmax(abs_err_matrix))
+            worst_cell = np.unravel_index(worst_flat_idx, abs_err_matrix.shape)
 
         lines = [
             f"模型: {model_name}",
@@ -652,11 +871,30 @@ class InferPage(QWidget):
             f"样本 RMSE: {rmse:.4f}",
             f"样本 MAPE: {mape:.2f}%",
             "",
+            "自动摘要:",
+            f"- 当前节点在 H{horizon_idx + 1} 的误差排名: {current_rank}",
+            f"- H{horizon_idx + 1} 最差节点: {worst_node_all}",
+        ]
+        if worst_horizon is not None:
+            lines.append(
+                f"- 样本最难预测步: H{worst_horizon['horizon_idx'] + 1} "
+                f"(MAE={worst_horizon['mae']:.4f}, RMSE={worst_horizon['rmse']:.4f})"
+            )
+        if worst_cell is not None:
+            lines.append(
+                f"- 全矩阵最大误差: node {int(worst_cell[0])}, H{int(worst_cell[1]) + 1}, "
+                f"abs_error={abs_err_matrix[worst_cell]:.4f}"
+            )
+        if len(topk_indices) > 0:
+            lines.append(f"- 当前 Top-K 节点集合: {', '.join(str(int(x)) for x in topk_indices)}")
+
+        lines.extend([
+            "",
             f"该节点未来 {predict_steps} 步 MAE: {future_mae:.4f}",
             f"该节点未来 {predict_steps} 步 RMSE: {future_rmse:.4f}",
             "",
             "节点逐步详情:",
-        ]
+        ])
         for h in range(min(predict_steps, len(pred_node_all_h))):
             lines.append(
                 f"H{h + 1}: pred={pred_node_all_h[h]:.4f} | target={target_node_all_h[h]:.4f} | abs_error={abs(pred_node_all_h[h] - target_node_all_h[h]):.4f}"
