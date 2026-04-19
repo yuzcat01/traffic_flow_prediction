@@ -24,6 +24,7 @@ from PyQt5.QtWidgets import (
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -125,15 +126,15 @@ class ResultsPage(QWidget):
         title.setObjectName("HeroTitle")
 
         desc = QLabel(
-            "这里汇总当前模型摘要、分组排名、基线汇总、多模型对比和分步长比较。"
-            "用于分析模型表现、比较实验方案，并定位不同配置下的性能差异。"
+            "这里将当前模型效果与多模型对比拆分展示。"
+            "先看单个模型是否可靠，再在对比页分析不同方案、基线和资源成本差异。"
         )
         desc.setWordWrap(True)
         desc.setObjectName("HeroSubtitle")
 
         badge_row = QHBoxLayout()
         badge_row.setSpacing(10)
-        for text in ["当前模型摘要", "分组排名对比", "多模型横向分析"]:
+        for text in ["当前模型效果", "多模型对比", "资源成本分析"]:
             badge = QLabel(text)
             badge.setObjectName("HeroBadge")
             badge.setAlignment(Qt.AlignCenter)
@@ -363,11 +364,6 @@ class ResultsPage(QWidget):
         self.combo_resource_cost.addItems(["num_params", "peak_gpu_mb"])
         self.combo_resource_cost.setMaximumWidth(180)
 
-        self.spin_resource_topk = QSpinBox()
-        self.spin_resource_topk.setRange(5, 100)
-        self.spin_resource_topk.setValue(20)
-        self.spin_resource_topk.setMaximumWidth(120)
-
         self.btn_refresh_resource = QPushButton("刷新资源分析")
         self.btn_export_resource_csv = QPushButton("导出资源 CSV")
         self.btn_export_resource_chart = QPushButton("导出资源图 PNG")
@@ -377,7 +373,6 @@ class ResultsPage(QWidget):
         self.btn_export_resource_chart.clicked.connect(self.export_resource_analysis_chart)
         self.combo_resource_metric.currentIndexChanged.connect(self.refresh_resource_analysis)
         self.combo_resource_cost.currentIndexChanged.connect(self.refresh_resource_analysis)
-        self.spin_resource_topk.valueChanged.connect(self.refresh_resource_analysis)
 
         resource_control.addWidget(QLabel("精度指标:"))
         resource_control.addWidget(self.combo_resource_metric)
@@ -385,8 +380,10 @@ class ResultsPage(QWidget):
         resource_control.addWidget(QLabel("成本指标:"))
         resource_control.addWidget(self.combo_resource_cost)
         resource_control.addSpacing(10)
-        resource_control.addWidget(QLabel("候选数:"))
-        resource_control.addWidget(self.spin_resource_topk)
+        resource_control.addWidget(QLabel("对比范围:"))
+        self.label_resource_scope = QLabel("已勾选模型")
+        self.label_resource_scope.setStyleSheet("color: #0f766e; font-weight: 700;")
+        resource_control.addWidget(self.label_resource_scope)
         resource_control.addSpacing(10)
         resource_control.addWidget(self.btn_refresh_resource)
         resource_control.addWidget(self.btn_export_resource_csv)
@@ -395,10 +392,10 @@ class ResultsPage(QWidget):
 
         resource_cards = QGridLayout()
         resource_cards.setSpacing(12)
-        self.card_resource_best = MetricCard("效率最优", "-")
+        self.card_resource_best = MetricCard("已选效率最优", "-")
         self.card_resource_front = MetricCard("Pareto 模型数", "0")
-        self.card_resource_cost = MetricCard("当前模型成本", "-")
-        self.card_resource_metric = MetricCard("当前模型精度", "-")
+        self.card_resource_cost = MetricCard("最优模型成本", "-")
+        self.card_resource_metric = MetricCard("最优模型精度", "-")
         resource_cards.addWidget(self.card_resource_best, 0, 0)
         resource_cards.addWidget(self.card_resource_front, 0, 1)
         resource_cards.addWidget(self.card_resource_cost, 0, 2)
@@ -572,12 +569,12 @@ class ResultsPage(QWidget):
         model_compare_layout.addLayout(deep_analysis_layout)
 
         fig_group = QGroupBox("当前模型图像")
-        fig_layout = QHBoxLayout(fig_group)
+        fig_layout = QVBoxLayout(fig_group)
         fig_layout.setSpacing(16)
 
         self.label_pred_fig = QLabel("预测图")
         self.label_pred_fig.setAlignment(Qt.AlignCenter)
-        self.label_pred_fig.setMinimumHeight(300)
+        self.label_pred_fig.setMinimumHeight(480)
         self.label_pred_fig.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.label_pred_fig.setStyleSheet("border: 1px solid #d1d5db; border-radius: 8px; background: #ffffff; color: #64748b;")
 
@@ -593,17 +590,39 @@ class ResultsPage(QWidget):
         self.label_loss_fig.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.label_loss_fig.setStyleSheet("border: 1px solid #d1d5db; border-radius: 8px; background: #ffffff; color: #64748b;")
 
-        fig_layout.addWidget(self.label_pred_fig, 1)
-        fig_layout.addWidget(self.label_pred_detail_fig, 1)
-        fig_layout.addWidget(self.label_loss_fig, 1)
+        secondary_fig_layout = QHBoxLayout()
+        secondary_fig_layout.setSpacing(16)
+        secondary_fig_layout.addWidget(self.label_pred_detail_fig, 1)
+        secondary_fig_layout.addWidget(self.label_loss_fig, 1)
 
-        layout.addLayout(top_layout)
-        layout.addWidget(fig_group)
-        layout.addWidget(compare_group)
-        layout.addLayout(compare_vis_layout)
-        layout.addWidget(baseline_group)
-        layout.addWidget(resource_group)
-        layout.addWidget(model_compare_group)
+        fig_layout.addWidget(self.label_pred_fig, 2)
+        fig_layout.addLayout(secondary_fig_layout, 1)
+
+        tabs = QTabWidget()
+        tabs.setObjectName("ResultsTabs")
+
+        current_tab = QWidget()
+        current_tab_layout = QVBoxLayout(current_tab)
+        current_tab_layout.setContentsMargins(12, 16, 12, 12)
+        current_tab_layout.setSpacing(18)
+        current_tab_layout.addLayout(top_layout)
+        current_tab_layout.addWidget(fig_group)
+        current_tab_layout.addStretch(1)
+
+        compare_tab = QWidget()
+        compare_tab_layout = QVBoxLayout(compare_tab)
+        compare_tab_layout.setContentsMargins(12, 16, 12, 12)
+        compare_tab_layout.setSpacing(18)
+        compare_tab_layout.addWidget(compare_group)
+        compare_tab_layout.addLayout(compare_vis_layout)
+        compare_tab_layout.addWidget(baseline_group)
+        compare_tab_layout.addWidget(model_compare_group)
+        compare_tab_layout.addWidget(resource_group)
+        compare_tab_layout.addStretch(1)
+
+        tabs.addTab(current_tab, "当前模型效果分析")
+        tabs.addTab(compare_tab, "对比分析")
+        layout.addWidget(tabs)
         layout.addStretch(1)
 
         scroll_root.addWidget(panel)
@@ -1069,12 +1088,10 @@ class ResultsPage(QWidget):
         return front
 
     def refresh_resource_analysis(self):
-        rows = self._all_rows if self._all_rows else self.registry.list_models(sort_by="rmse")
-        self._all_rows = rows
-
+        rows = self._get_selected_model_rows()
         metric_key = self.combo_resource_metric.currentText().strip()
         cost_key = self.combo_resource_cost.currentText().strip()
-        topk = self.spin_resource_topk.value()
+        self.label_resource_scope.setText(f"已勾选模型：{len(rows)} 个")
 
         ax = self.canvas_resource.ax
         ax.clear()
@@ -1088,9 +1105,12 @@ class ResultsPage(QWidget):
             self.card_resource_front.set_value("0")
             self.card_resource_cost.set_value("-")
             self.card_resource_metric.set_value("-")
-            ax.set_title("暂无资源分析数据")
+            ax.set_title("请先勾选要对比的模型")
             self.canvas_resource.draw()
-            self.text_resource.setPlainText("暂无实验记录，无法生成资源成本 vs 精度分析。")
+            self.text_resource.setPlainText(
+                "资源成本 vs 精度分析现在只比较下方多模型表格中已勾选的模型。\n"
+                "请先勾选 2 个或更多模型，或点击“选择 Top 3”。"
+            )
             self._update_report_view(self._get_selected_model_rows())
             return
 
@@ -1106,7 +1126,6 @@ class ResultsPage(QWidget):
             candidates.append(enriched)
 
         candidates.sort(key=lambda row: (row["_resource_metric"], row["_resource_cost"]))
-        candidates = candidates[:topk]
 
         self._last_resource_rows = candidates
         self._last_resource_metric = metric_key
@@ -1120,7 +1139,7 @@ class ResultsPage(QWidget):
             ax.set_title("缺少可用资源字段")
             self.canvas_resource.draw()
             self.text_resource.setPlainText(
-                f"当前记录中缺少 {self._resource_label(cost_key)} 或 {self._resource_label(metric_key)}，无法生成对比图。"
+                f"已勾选模型中缺少 {self._resource_label(cost_key)} 或 {self._resource_label(metric_key)}，无法生成对比图。"
             )
             self._update_report_view(self._get_selected_model_rows())
             return
@@ -1150,7 +1169,7 @@ class ResultsPage(QWidget):
                 edgecolors="#475569",
                 linewidths=0.8,
                 alpha=0.85,
-                label="候选模型",
+                label="已选模型",
             )
 
         ax.scatter(
@@ -1206,7 +1225,7 @@ class ResultsPage(QWidget):
 
         ax.set_xlabel(self._resource_label(cost_key))
         ax.set_ylabel(self._resource_label(metric_key))
-        ax.set_title(f"资源成本 vs 精度 | {self._resource_label(cost_key)} vs {self._resource_label(metric_key)}")
+        ax.set_title(f"已选模型资源成本 vs 精度 | {self._resource_label(cost_key)} vs {self._resource_label(metric_key)}")
         ax.grid(True, linestyle="--", alpha=0.28, color="#94a3b8")
         ax.legend(fontsize=8)
         self.canvas_resource.figure.subplots_adjust(left=0.10, right=0.98, top=0.90, bottom=0.18)
@@ -1218,23 +1237,13 @@ class ResultsPage(QWidget):
         )
         self.card_resource_best.set_value(str(best_row.get("model_name", "-")))
         self.card_resource_front.set_value(str(len(pareto_rows)))
-
-        if current_name:
-            current_row = next((row for row in candidates if str(row.get("model_name", "")) == current_name), None)
-            if current_row is not None:
-                self.card_resource_cost.set_value(f"{current_row['_resource_cost']:.2f}")
-                self.card_resource_metric.set_value(f"{current_row['_resource_metric']:.4f}")
-            else:
-                self.card_resource_cost.set_value("-")
-                self.card_resource_metric.set_value("-")
-        else:
-            self.card_resource_cost.set_value("-")
-            self.card_resource_metric.set_value("-")
+        self.card_resource_cost.set_value(f"{best_row['_resource_cost']:.2f}")
+        self.card_resource_metric.set_value(f"{best_row['_resource_metric']:.4f}")
 
         lines = [
             f"[资源成本 vs 精度] 精度指标={self._resource_label(metric_key)}，成本指标={self._resource_label(cost_key)}",
             "",
-            f"候选模型数：{len(candidates)}",
+            f"已选可分析模型数：{len(candidates)}",
             f"Pareto 前沿模型数：{len(pareto_rows)}",
             f"效率最优模型：{best_row.get('model_name', '')} | "
             f"{self._resource_label(metric_key)}={best_row['_resource_metric']:.4f} | "
@@ -1261,7 +1270,7 @@ class ResultsPage(QWidget):
                     f"是否位于 Pareto 前沿：{on_front}"
                 )
             else:
-                lines.append("当前模型缺少完整资源字段，未参与本轮资源分析。")
+                lines.append("当前加载模型未被勾选，或缺少完整资源字段，未参与本轮资源分析。")
 
         self.text_resource.setPlainText("\n".join(lines))
         self._update_report_view(self._get_selected_model_rows())
@@ -1641,6 +1650,7 @@ class ResultsPage(QWidget):
             self.canvas_models.draw()
             self.text_models_summary.setPlainText("未选择模型。")
             self._clear_compare_analysis("请先勾选需要比较的模型，右侧会同步生成热力图、步长矩阵和报告摘要。")
+            self.refresh_resource_analysis()
             return
 
         metric = self.combo_model_metric.currentText()
@@ -1670,6 +1680,7 @@ class ResultsPage(QWidget):
         self._update_selected_compare_cards(rows, metric)
         self._draw_metric_heatmap(rows)
         self.compare_selected_models_by_horizon()
+        self.refresh_resource_analysis()
 
     def compare_selected_models_by_horizon(self):
         rows = self._get_selected_model_rows()
