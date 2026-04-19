@@ -47,6 +47,11 @@ class InferPage(QWidget):
         self.current_result = None
         self.current_topk_rows = []
         self._syncing_topk_selection = False
+        self._syncing_controls = False
+        self._syncing_heatmap_controls = False
+        self._heatmap_manual_window = False
+        self._heatmap_focus_nodes = []
+        self._heatmap_predict_steps = 0
 
         self._init_ui()
 
@@ -185,7 +190,34 @@ class InferPage(QWidget):
 
         heatmap_group = QGroupBox("节点-步长误差热力图")
         heatmap_layout = QVBoxLayout(heatmap_group)
+
+        heatmap_control = QHBoxLayout()
+        self.spin_heatmap_start = QSpinBox()
+        self.spin_heatmap_start.setRange(0, 0)
+        self.spin_heatmap_start.setMaximumWidth(110)
+        self.spin_heatmap_start.valueChanged.connect(self._on_heatmap_start_changed)
+
+        self.spin_heatmap_count = QSpinBox()
+        self.spin_heatmap_count.setRange(1, 200)
+        self.spin_heatmap_count.setValue(20)
+        self.spin_heatmap_count.setMaximumWidth(110)
+        self.spin_heatmap_count.valueChanged.connect(self._on_heatmap_count_changed)
+
+        heatmap_hint = QLabel("默认以当前节点居中；可手动调整起点查看连续节点窗口。")
+        heatmap_hint.setStyleSheet("color: #64748b;")
+        heatmap_hint.setWordWrap(True)
+
+        heatmap_control.addWidget(QLabel("节点起点:"))
+        heatmap_control.addWidget(self.spin_heatmap_start)
+        heatmap_control.addSpacing(8)
+        heatmap_control.addWidget(QLabel("显示点数:"))
+        heatmap_control.addWidget(self.spin_heatmap_count)
+        heatmap_control.addSpacing(8)
+        heatmap_control.addWidget(heatmap_hint, 1)
+
         self.canvas_error_heatmap = MplCanvas(self, width=8, height=3.6, dpi=100)
+        self.canvas_error_heatmap.mpl_connect("button_press_event", self._on_error_heatmap_clicked)
+        heatmap_layout.addLayout(heatmap_control)
         heatmap_layout.addWidget(self.canvas_error_heatmap)
 
         analysis_chart_layout.addWidget(horizon_metric_group, 1)
@@ -257,6 +289,15 @@ class InferPage(QWidget):
             self.spin_sample_index.setMaximum(max(0, self.predictor.get_test_size() - 1))
             self.spin_node_index.setMaximum(max(0, self.predictor.get_node_count() - 1))
             self.spin_horizon_idx.setMaximum(max(0, self.predictor.get_predict_steps() - 1))
+            node_count = max(1, self.predictor.get_node_count())
+            self._syncing_heatmap_controls = True
+            try:
+                self.spin_heatmap_start.setMaximum(max(0, node_count - 1))
+                self.spin_heatmap_count.setMaximum(node_count)
+                self.spin_heatmap_count.setValue(min(20, node_count))
+            finally:
+                self._syncing_heatmap_controls = False
+            self._heatmap_manual_window = False
             self.run_prediction(show_warnings=False)
         else:
             self._reset_view()
@@ -286,12 +327,99 @@ class InferPage(QWidget):
 
         self.canvas_error_heatmap.ax.clear()
         self.canvas_error_heatmap.ax.set_title("暂无数据")
+        self._heatmap_focus_nodes = []
+        self._heatmap_predict_steps = 0
+        self._heatmap_manual_window = False
         self.canvas_error_heatmap.draw()
 
     def _on_controls_changed(self):
+        if self._syncing_controls:
+            return
         if self.predictor is None:
             return
+        if self.sender() is self.spin_node_index:
+            self._heatmap_manual_window = False
         self.run_prediction(show_warnings=False)
+
+    def _on_heatmap_start_changed(self):
+        if self._syncing_heatmap_controls:
+            return
+        self._heatmap_manual_window = True
+        if self.predictor is not None:
+            self.run_prediction(show_warnings=False)
+
+    def _on_heatmap_count_changed(self):
+        if self._syncing_heatmap_controls:
+            return
+        self._heatmap_manual_window = False
+        if self.predictor is not None:
+            self.run_prediction(show_warnings=False)
+
+    def _set_inference_focus(self, node_id, horizon_idx=None):
+        if self.predictor is None:
+            return
+
+        node_id = int(node_id)
+        horizon_idx = self.spin_horizon_idx.value() if horizon_idx is None else int(horizon_idx)
+        node_id = max(self.spin_node_index.minimum(), min(node_id, self.spin_node_index.maximum()))
+        horizon_idx = max(self.spin_horizon_idx.minimum(), min(horizon_idx, self.spin_horizon_idx.maximum()))
+        keep_heatmap_window = node_id in self._heatmap_focus_nodes
+
+        changed = (
+            node_id != self.spin_node_index.value()
+            or horizon_idx != self.spin_horizon_idx.value()
+        )
+        if not changed:
+            return
+
+        self._syncing_controls = True
+        try:
+            self.spin_node_index.setValue(node_id)
+            self.spin_horizon_idx.setValue(horizon_idx)
+        finally:
+            self._syncing_controls = False
+
+        self._heatmap_manual_window = keep_heatmap_window
+        self.run_prediction(show_warnings=False)
+
+    def _on_error_heatmap_clicked(self, event):
+        if event.inaxes is not self.canvas_error_heatmap.ax:
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+        if not self._heatmap_focus_nodes or self._heatmap_predict_steps <= 0:
+            return
+
+        col_idx = int(round(event.xdata))
+        row_idx = int(round(event.ydata))
+        if row_idx < 0 or row_idx >= len(self._heatmap_focus_nodes):
+            return
+        if col_idx < 0 or col_idx >= self._heatmap_predict_steps:
+            return
+
+        self._set_inference_focus(self._heatmap_focus_nodes[row_idx], col_idx)
+
+    def _resolve_heatmap_window(self, num_nodes, selected_node):
+        count = max(1, min(int(self.spin_heatmap_count.value()), int(num_nodes)))
+        max_start = max(0, int(num_nodes) - count)
+
+        if self._heatmap_manual_window:
+            start = max(0, min(int(self.spin_heatmap_start.value()), max_start))
+        else:
+            start = max(0, min(int(selected_node) - count // 2, max_start))
+
+        self._syncing_heatmap_controls = True
+        try:
+            self.spin_heatmap_start.setMaximum(max_start)
+            self.spin_heatmap_count.setMaximum(max(1, int(num_nodes)))
+            if self.spin_heatmap_start.value() != start:
+                self.spin_heatmap_start.setValue(start)
+            if self.spin_heatmap_count.value() != count:
+                self.spin_heatmap_count.setValue(count)
+        finally:
+            self._syncing_heatmap_controls = False
+
+        return start, count
 
     def run_prediction(self, show_warnings=True):
         if self.predictor is None:
@@ -749,30 +877,23 @@ class InferPage(QWidget):
         abs_err_matrix = np.asarray(abs_err_matrix, dtype=float)
         if abs_err_matrix.ndim != 2 or abs_err_matrix.size == 0:
             ax.set_title("暂无误差热力图")
+            self._heatmap_focus_nodes = []
+            self._heatmap_predict_steps = 0
             self.canvas_error_heatmap.draw()
             return
 
         num_nodes, predict_steps = abs_err_matrix.shape
-        focus_nodes = [int(node_id)] if 0 <= int(node_id) < num_nodes else []
-        for idx in np.asarray(topk_indices, dtype=int).tolist():
-            if 0 <= idx < num_nodes and idx not in focus_nodes:
-                focus_nodes.append(idx)
-
-        max_rows = min(40, num_nodes)
-        if len(focus_nodes) < max_rows:
-            node_scores = abs_err_matrix.mean(axis=1)
-            for idx in np.argsort(-node_scores):
-                idx = int(idx)
-                if idx not in focus_nodes:
-                    focus_nodes.append(idx)
-                if len(focus_nodes) >= max_rows:
-                    break
-
-        focus_nodes = focus_nodes[:max_rows]
+        start_node, node_count = self._resolve_heatmap_window(num_nodes, node_id)
+        focus_nodes = list(range(start_node, start_node + node_count))
+        self._heatmap_focus_nodes = list(focus_nodes)
+        self._heatmap_predict_steps = int(predict_steps)
         heatmap_data = abs_err_matrix[focus_nodes, :]
 
         image = ax.imshow(heatmap_data, aspect="auto", cmap="YlOrRd")
-        ax.set_title(f"Sample {sample_index} | Node-Horizon Absolute Error")
+        ax.set_title(
+            f"Sample {sample_index} | Node {start_node}-{start_node + node_count - 1} | "
+            "点击单元格切换节点/步长"
+        )
         ax.set_xlabel("Horizon Step")
         ax.set_ylabel("Node ID")
         ax.set_xticks(np.arange(predict_steps))
@@ -798,6 +919,74 @@ class InferPage(QWidget):
         cbar.set_label("Absolute Error")
         self.canvas_error_heatmap.figure.tight_layout()
         self.canvas_error_heatmap.draw()
+
+    @staticmethod
+    def _build_sample_risk_summary(abs_err_matrix, node_id, horizon_idx, horizon_metrics):
+        abs_err_matrix = np.asarray(abs_err_matrix, dtype=float)
+        if abs_err_matrix.ndim != 2 or abs_err_matrix.size == 0:
+            return "未知", "缺少完整节点-步长误差矩阵，无法评估风险。"
+
+        valid_errors = abs_err_matrix[np.isfinite(abs_err_matrix)]
+        if valid_errors.size == 0:
+            return "未知", "误差矩阵中没有有效数值。"
+
+        mean_err = float(np.mean(valid_errors))
+        std_err = float(np.std(valid_errors))
+        safe_errors = np.where(np.isfinite(abs_err_matrix), abs_err_matrix, -np.inf)
+        max_flat_idx = int(np.argmax(safe_errors))
+        max_node, max_horizon = np.unravel_index(max_flat_idx, abs_err_matrix.shape)
+        max_err = float(safe_errors[max_node, max_horizon])
+
+        current_err = None
+        current_rank = None
+        if 0 <= node_id < abs_err_matrix.shape[0] and 0 <= horizon_idx < abs_err_matrix.shape[1]:
+            current_err = float(abs_err_matrix[node_id, horizon_idx])
+            selected_h_errors = abs_err_matrix[:, horizon_idx]
+            ranked_nodes = np.argsort(-selected_h_errors)
+            positions = np.flatnonzero(ranked_nodes == node_id)
+            if positions.size > 0:
+                current_rank = int(positions[0]) + 1
+
+        if horizon_metrics:
+            worst_horizon = max(horizon_metrics, key=lambda item: item["mae"])
+            worst_horizon_idx = int(worst_horizon["horizon_idx"])
+            worst_horizon_mae = float(worst_horizon["mae"])
+        else:
+            horizon_mae = np.nanmean(np.where(np.isfinite(abs_err_matrix), abs_err_matrix, np.nan), axis=0)
+            safe_horizon_mae = np.where(np.isfinite(horizon_mae), horizon_mae, -np.inf)
+            worst_horizon_idx = int(np.argmax(safe_horizon_mae))
+            worst_horizon_mae = float(safe_horizon_mae[worst_horizon_idx])
+
+        eps = 1e-8
+        max_ratio = max_err / (mean_err + eps)
+        current_ratio = (current_err / (mean_err + eps)) if current_err is not None else 0.0
+        current_z = ((current_err - mean_err) / (std_err + eps)) if current_err is not None else 0.0
+        rank_ratio = (
+            current_rank / max(1, abs_err_matrix.shape[0])
+            if current_rank is not None
+            else 1.0
+        )
+
+        if max_ratio >= 3.0 or current_z >= 2.0 or rank_ratio <= 0.05:
+            risk_label = "高"
+        elif max_ratio >= 2.0 or current_ratio >= 1.6 or rank_ratio <= 0.20:
+            risk_label = "中"
+        else:
+            risk_label = "低"
+
+        reasons = [
+            f"样本平均绝对误差={mean_err:.4f}",
+            f"最大误差位于 node {int(max_node)} / H{int(max_horizon) + 1}，abs_error={max_err:.4f}",
+            f"最难预测步为 H{worst_horizon_idx + 1}，MAE={worst_horizon_mae:.4f}",
+        ]
+        if current_err is not None:
+            rank_text = f"，当前步排名 {current_rank}/{abs_err_matrix.shape[0]}" if current_rank is not None else ""
+            reasons.insert(
+                1,
+                f"当前单元 abs_error={current_err:.4f}，约为样本均值的 {current_ratio:.2f} 倍{rank_text}",
+            )
+
+        return risk_label, "；".join(reasons)
 
     def _update_info_text(
         self,
@@ -855,6 +1044,13 @@ class InferPage(QWidget):
             worst_flat_idx = int(np.argmax(abs_err_matrix))
             worst_cell = np.unravel_index(worst_flat_idx, abs_err_matrix.shape)
 
+        risk_label, risk_reason = self._build_sample_risk_summary(
+            abs_err_matrix=abs_err_matrix,
+            node_id=node_id,
+            horizon_idx=horizon_idx,
+            horizon_metrics=horizon_metrics,
+        )
+
         lines = [
             f"模型: {model_name}",
             f"样本索引: {sample_index}",
@@ -872,6 +1068,8 @@ class InferPage(QWidget):
             f"样本 MAPE: {mape:.2f}%",
             "",
             "自动摘要:",
+            f"- 风险等级: {risk_label}",
+            f"- 风险原因: {risk_reason}",
             f"- 当前节点在 H{horizon_idx + 1} 的误差排名: {current_rank}",
             f"- H{horizon_idx + 1} 最差节点: {worst_node_all}",
         ]
