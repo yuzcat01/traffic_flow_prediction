@@ -10,6 +10,7 @@
 - 支持训练、测试、结果记录、模型推理
 - 支持多种建图策略：`connect`、`distance`、`correlation`、`distance_correlation`
 - 提供 PyQt GUI：数据预览、实验训练、模型管理、在线推理、结果分析
+- 提供应用决策原型：基于预测流量进行拥堵预警与节点级路线推荐
 - 提供节点曲线、指标图表、时空热力图、报告导出等分析能力
 
 ## 项目结构
@@ -47,6 +48,7 @@ traffic_flow_prediction/
 - `docs/README.md`：文档索引总入口
 - `docs/requirements.md`：需求说明
 - `docs/technical_design.md`：技术设计说明
+- `docs/application_decision.md`：拥堵预警与路线推荐应用模块说明
 - `docs/field_reference.md`：配置字段说明
 - `docs/runtime_guide.md`：本地运行与复现说明
 - `docs/compliance_and_sustainability.md`：数据合规、隐私边界与资源消耗说明
@@ -187,12 +189,44 @@ configs/data/imported_dataset.yaml
 4. 在“实验训练”页面先选择默认配置，跑通一次基础训练
 5. 在“模型管理”页面加载训练完成的模型
 6. 在“在线推理”页面查看预测效果
-7. 在“结果分析”页面对比不同模型、不同建图方式的结果
+7. 在“应用决策”页面选择起终点和推荐策略，查看拥堵预警与路线建议
+8. 在“结果分析”页面对比不同模型、不同建图方式的结果
 
 如果你只想快速验证代码流程，也可以直接先运行：
 
 ```bash
 python train.py --model_cfg configs/model/gcn_gru.yaml
+```
+
+## 应用决策功能
+
+项目新增“应用决策”页面，用于展示交通流量预测模型在真实业务中的使用方式。该页面复用当前加载模型的在线推理结果，将未来节点流量转换为拥堵指数，并结合 `PeMS04.csv` 中的路网边距离生成路线建议。
+
+当前支持：
+
+- 历史测试样本回放，模拟实时路网流量输入
+- 起点节点、终点节点、预测步长和推荐策略选择，并提供“选择最远预测步长”快捷按钮
+- 三类推荐策略：距离最短、优先避堵、综合最优
+- 根据路网连接关系绘制整体拓扑预览
+- 支持多条候选路线对比，并在路网图中高亮当前选中路线
+- 全网未来拥堵风险 Top-K 节点识别
+- 推荐路线节点级预测流量、参考流量和拥堵等级展示
+- 路线推荐报告 CSV 导出
+
+说明：PeMS04 默认数据集提供的是传感器节点拓扑和边距离，不包含真实经纬度、道路名称、限速或车道数。因此该功能定位为“基于传感器节点拓扑的路线推荐原型”，适合用于课程设计、论文和答辩中展示预测模型如何进入交通辅助决策环节。
+
+仓库还提供了一个轻量模拟数据集用于验证通用性：
+
+```text
+data/raw/sim_demo/sim_demo.csv
+data/raw/sim_demo/sim_demo.npz
+configs/data/sim_demo.yaml
+```
+
+该数据集包含 24 个模拟路网节点、43 条连接边和 10 天 15 分钟粒度的流量序列。训练或预览时可以通过 `--data_cfg configs/data/sim_demo.yaml` 使用它，例如：
+
+```bash
+python train.py --data_cfg configs/data/sim_demo.yaml --model_cfg configs/model/gcn_gru_h3.yaml
 ```
 
 ## 配置文件说明

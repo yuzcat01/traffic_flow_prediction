@@ -1,0 +1,11 @@
+dataset:
+  name: SimDemo
+  graph_path: data/raw/sim_demo/sim_demo.csv
+  flow_path: data/raw/sim_demo/sim_demo.npz
+  num_nodes: 24
+  divide_days: [8, 2]
+  time_interval: 15
+  preprocess:
+    missing_strategy: none
+    clip_min: 0.0
+    clip_max_quantile:

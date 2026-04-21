@@ -65,6 +65,11 @@ _tmp_pycache/
 # =========================
 # raw dataset files (usually large, local-only)
 data/raw/
+!data/raw/
+data/raw/*
+!data/raw/sim_demo/
+!data/raw/sim_demo/sim_demo.csv
+!data/raw/sim_demo/sim_demo.npz
 
 # training outputs
 results/

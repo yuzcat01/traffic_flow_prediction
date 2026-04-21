@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (
 from src.gui.pages.data_page import DataPage
 from src.gui.pages.home_page import HomePage
 from src.gui.pages.infer_page import InferPage
+from src.gui.pages.application_page import ApplicationPage
 from src.gui.pages.model_manage_page import ModelManagePage
 from src.gui.pages.results_page import ResultsPage
 from src.gui.pages.train_page import TrainPage
@@ -87,12 +88,15 @@ class MainWindow(QMainWindow):
         self.nav_infer = self._make_nav_button("在线推理")
         self.nav_results = self._make_nav_button("结果分析")
 
+        self.nav_application = self._make_nav_button("应用决策")
+
         buttons = [
             self.nav_home,
             self.nav_data,
             self.nav_train,
             self.nav_model,
             self.nav_infer,
+            self.nav_application,
             self.nav_results,
         ]
         for i, btn in enumerate(buttons):
@@ -159,6 +163,7 @@ class MainWindow(QMainWindow):
         self.train_page = TrainPage()
         self.model_manage_page = ModelManagePage()
         self.infer_page = InferPage()
+        self.application_page = ApplicationPage()
         self.results_page = ResultsPage()
 
         self.stack.addWidget(self._wrap_scrollable_page(self.home_page, 1160, 820))
@@ -166,6 +171,7 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self._wrap_scrollable_page(self.train_page, 1240, 940))
         self.stack.addWidget(self._wrap_scrollable_page(self.model_manage_page, 1240, 840))
         self.stack.addWidget(self._wrap_scrollable_page(self.infer_page, 1240, 840))
+        self.stack.addWidget(self._wrap_scrollable_page(self.application_page, 1240, 900))
         self.stack.addWidget(self._wrap_scrollable_page(self.results_page, 1240, 840))
 
         self.model_manage_page.set_load_callback(self.load_model_from_row)
@@ -224,6 +230,7 @@ class MainWindow(QMainWindow):
             self.model_manage_page.label_current_model.setText(current_model_text)
 
             self.infer_page.set_predictor(self.predictor, row)
+            self.application_page.set_predictor(self.predictor, row)
             self.results_page.set_model_row(row)
 
             self.label_status.setText("状态：模型已加载")
