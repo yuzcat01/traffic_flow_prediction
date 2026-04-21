@@ -92,6 +92,20 @@ class RouteRecommendationServiceTests(unittest.TestCase):
         self.assertIn("x", preview["nodes"][0])
         self.assertIn("y", preview["nodes"][0])
 
+    def test_query_reachability_returns_minimum_hop_path(self):
+        service = RouteRecommendationService(
+            graph_path=str(self._write_route_graph()),
+            num_nodes=4,
+            flow_path=None,
+        )
+
+        result = service.query_reachability(0, 3)
+
+        self.assertTrue(result["reachable"])
+        self.assertEqual(result["hop_count"], 2)
+        self.assertEqual(result["path"][0], 0)
+        self.assertEqual(result["path"][-1], 3)
+
     def test_rejects_same_source_and_target(self):
         service = RouteRecommendationService(
             graph_path=str(self._write_route_graph()),

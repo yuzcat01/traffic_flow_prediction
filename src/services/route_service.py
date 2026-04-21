@@ -356,6 +356,67 @@ class RouteRecommendationService:
             total += float(match)
         return total
 
+    def query_reachability(self, source: int, target: int) -> Dict[str, Any]:
+        source = int(source)
+        target = int(target)
+        if source < 0 or source >= self.num_nodes:
+            raise ValueError(f"source node out of range: {source}")
+        if target < 0 or target >= self.num_nodes:
+            raise ValueError(f"target node out of range: {target}")
+
+        if source == target:
+            return {
+                "source": source,
+                "target": target,
+                "reachable": True,
+                "hop_count": 0,
+                "path": [source],
+                "path_text": str(source),
+                "message": "Source and target are the same node.",
+            }
+
+        queue: List[int] = [source]
+        previous: Dict[int, int] = {}
+        visited = {source}
+        cursor = 0
+
+        while cursor < len(queue):
+            node = queue[cursor]
+            cursor += 1
+            if node == target:
+                break
+            for next_node, _ in self.graph.get(node, []):
+                if next_node in visited:
+                    continue
+                visited.add(next_node)
+                previous[next_node] = node
+                queue.append(next_node)
+
+        if target not in visited:
+            return {
+                "source": source,
+                "target": target,
+                "reachable": False,
+                "hop_count": None,
+                "path": [],
+                "path_text": "",
+                "message": "Target is not reachable from source in the current graph.",
+            }
+
+        path = [target]
+        while path[-1] != source:
+            path.append(previous[path[-1]])
+        path.reverse()
+        return {
+            "source": source,
+            "target": target,
+            "reachable": True,
+            "hop_count": len(path) - 1,
+            "path": [int(node) for node in path],
+            "path_text": " -> ".join(str(node) for node in path),
+            "message": "Target is reachable from source.",
+        }
+
     def _build_route_result(
         self,
         route: List[int],
@@ -379,6 +440,8 @@ class RouteRecommendationService:
         shortest_distance = self._path_distance(shortest_route) if shortest_route else float("inf")
         shortest_scores = scores[shortest_route] if shortest_route else np.array([], dtype=np.float32)
         shortest_avg_score = float(np.mean(shortest_scores)) if shortest_scores.size else 0.0
+        shortest_max_score = float(np.max(shortest_scores)) if shortest_scores.size else 0.0
+        shortest_high_risk_count = int(np.count_nonzero(shortest_scores >= 1.0)) if shortest_scores.size else 0
         avg_score = float(np.mean(route_scores)) if len(route_scores) else 0.0
 
         return {
@@ -414,6 +477,9 @@ class RouteRecommendationService:
             "shortest_cost": float(shortest_cost),
             "shortest_distance": float(shortest_distance),
             "shortest_avg_congestion_score": shortest_avg_score,
+            "shortest_max_congestion_score": shortest_max_score,
+            "shortest_high_risk_node_count": shortest_high_risk_count,
+            "shortest_node_count": len(shortest_route),
             "distance_delta": float(route_distance - shortest_distance),
             "congestion_delta": float(avg_score - shortest_avg_score),
         }
@@ -540,3 +606,58 @@ class RouteRecommendationService:
             topk=topk,
             candidate_count=1,
         )
+
+    @staticmethod
+    def explain_route(route_result: Dict[str, Any]) -> List[str]:
+        if not route_result.get("reachable", False):
+            return [route_result.get("message", "当前路网中未找到可达路径。")]
+
+        explanations: List[str] = []
+        distance_delta = float(route_result.get("distance_delta", 0.0))
+        congestion_delta = float(route_result.get("congestion_delta", 0.0))
+        high_risk_count = int(route_result.get("high_risk_node_count", 0))
+        shortest_high_risk_count = int(route_result.get("shortest_high_risk_node_count", 0))
+        avg_score = float(route_result.get("avg_congestion_score", 0.0))
+        max_score = float(route_result.get("max_congestion_score", 0.0))
+        high_risk_nodes = route_result.get("high_risk_nodes", [])
+
+        if congestion_delta < -0.02:
+            explanations.append(
+                f"相比最短路线，平均拥堵指数降低 {abs(congestion_delta):.3f}。"
+            )
+        elif congestion_delta > 0.02:
+            explanations.append(
+                f"相比最短路线，平均拥堵指数增加 {congestion_delta:.3f}。"
+            )
+        else:
+            explanations.append("平均拥堵指数与最短路线基本接近。")
+
+        if distance_delta > 0.01:
+            explanations.append(
+                f"相对最短路线，距离增加 {distance_delta:.2f} 个距离单位。"
+            )
+        elif distance_delta < -0.01:
+            explanations.append(
+                f"相对最短路线，距离减少 {abs(distance_delta):.2f} 个距离单位。"
+            )
+        else:
+            explanations.append("路线距离与最短路线基本一致。")
+
+        if high_risk_count < shortest_high_risk_count:
+            explanations.append(
+                f"相比最短路线，避开了 {shortest_high_risk_count - high_risk_count} 个严重拥堵风险节点。"
+            )
+        elif high_risk_count > 0:
+            sample_nodes = ", ".join(str(node) for node in high_risk_nodes[:5])
+            explanations.append(f"当前路线仍经过 {high_risk_count} 个严重拥堵风险节点：{sample_nodes}。")
+        else:
+            explanations.append("当前预测步长下，路线中没有严重拥堵风险节点。")
+
+        if max_score >= 1.0:
+            explanations.append(f"路线最高拥堵指数为 {max_score:.3f}，建议人工复核或考虑其他候选路线。")
+        elif avg_score >= 0.75:
+            explanations.append("路线整体存在中等拥堵压力，更适合作为备选方案。")
+        else:
+            explanations.append("当前预测下路线整体拥堵压力较低，适合作为推荐方案。")
+
+        return explanations
